@@ -1,56 +1,48 @@
-# Codex-style floating sidebar design QA
+# STAR sidebar polish QA
 
-- Date: 2026-10-19
-- Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-0da60472-a524-4e69-a95a-83722f591760.png`
-- Previous implementation evidence: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-bb893475-1c07-4c8e-89b5-b8daef9e80eb.png`
-- Implementation target: `apps/web/app/components/chat-sidebar.tsx` and `apps/web/app/globals.css`
-- Source pixels: 943 × 1408; desktop app state; density normalization not required for structural comparison
-- Intended implementation viewport: responsive desktop browser, authenticated chat state
-- Implementation screenshot: unavailable — the isolated in-app browser has no Brown-Chat login session, and the logged-in Chrome surface is unavailable to computer control
-- State: floating or pinned sidebar open beside an existing chat; closed state keeps the chat visible
+## Evidence
 
-## Full-view comparison evidence
-
-- The source uses a narrow fixed rail and a separate white panel with a subtle border, rounded corners, and no reflow of the content behind it.
-- The implementation now uses a 58px rail and a 264px floating panel positioned over the unchanged chat region.
-- The panel can stay as a non-reflowing overlay or be pinned into a 338px layout track without removing the chat.
-- Browser-rendered authenticated evidence is unavailable, so the full-view comparison remains blocked.
-
-## Focused region comparison evidence
-
-- Source focus: upper-left rail and panel header.
-- Implementation focus: 42px rail button with the supplied Brown-Chat star asset; panel starts at 66px with a 14px radius and 1px neutral border.
-- Interaction focus: star click opens and closes the panel with a horizontal slide; the panel-header pin toggles fixed and floating layouts; hover and vertical drag do nothing.
-- Visual comparison is blocked because the authenticated implementation region could not be captured.
-
-## Required fidelity surfaces
-
-- Fonts and typography: existing Brown-Chat font stack retained; panel heading simplified to a single Brown-Chat wordmark.
-- Spacing and layout rhythm: narrow 58px rail, 10px panel inset, 264px panel width, 14px radius, compact 39px new-chat row.
-- Colors and visual tokens: neutral gray rail and white floating panel follow the Codex reference while the brown star preserves Brown-Chat identity.
-- Image quality and asset fidelity: the supplied `/brown-chat-mark-v3.png` is used directly; no replacement CSS or handcrafted asset was introduced.
-- Copy and content: existing projects, conversations, pinned threads, menus, profile, and `새 대화` copy remain intact; the header adds an accessible pin/unpin control.
+- Source visual truth:
+  - `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-86195d6c-f74e-406c-9286-eb336a1392da.png`
+  - `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-0cadf40b-8911-4a1e-8cd1-1b3845a84895.png`
+  - `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-a843c71d-f428-4268-9405-102b77fbdf2e.png`
+  - `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-f54fa7bd-6822-4d9b-a78e-874643af961f.png`
+- Browser-rendered implementation: `C:/Users/이재석/.codex/visualizations/2026/10/15/01a13e65-dfaa-7392-89e0-0adb3f203d5a/star-chat-sidebar-polish.png`
+- Normalized comparison: `C:/Users/이재석/.codex/visualizations/2026/10/15/01a13e65-dfaa-7392-89e0-0adb3f203d5a/star-sidebar-comparison.png`
+- Route: `http://localhost:3000/chat`
+- State: desktop, pinned sidebar, project and recent-conversation sections expanded; both collapsed states tested separately.
+- Browser viewport / implementation pixels: 1019 × 1244 CSS px at device scale 1; screenshot 1019 × 1244 px.
+- Source pixels: primary sidebar reference 280 × 579 px. The implementation sidebar was cropped to 340 × 700 px for the focused comparison; no density rescaling was used.
 
 ## Findings
 
-- [P1] Authenticated visual capture unavailable
-  - Location: deployed `/chat` screen.
-  - Evidence: public health and route return HTTP 200, but the QA browser redirects to sign-in and the connected Chrome browser is unavailable.
-  - Impact: the final pin control and horizontal slide cannot be compared from a rendered authenticated screenshot.
-  - Fix: capture the refreshed authenticated chat screen, then compare it with the Codex reference and adjust remaining spacing if needed.
+- No actionable P0/P1/P2 issues remain.
+- Typography: synthetic fractional weights were removed from the affected sidebar text, antialiasing and legibility settings are explicit, and Korean labels now use a consistent 600/700 hierarchy.
+- Spacing and layout rhythm: disclosure, add, and overflow controls share a centered icon box; project and recent-conversation headings align to the same 34 px row rhythm.
+- Colors and visual tokens: the existing cold ivory, graphite-chocolate, and faded steel-blue palette is unchanged.
+- Image and icon quality: character-based `+`, disclosure arrows, dots, and overflow marks were replaced with crisp viewBox-based controls already consistent with the app's icon treatment. The STAR assets remain unchanged.
+- Copy and content: all existing labels are preserved; only accessible expanded/collapsed labels change with state.
+- Surface finish: sidebar and composer use restrained layered shadows, precise translucent borders, and focus-within treatment without changing structure or component sizes.
+
+## Interaction verification
+
+- Project section collapses independently and removes only its body from the accessibility tree.
+- Recent conversation section collapses independently and removes only its body from the accessibility tree.
+- Both sections restore correctly and expose accurate `aria-expanded` state and labels.
+- Overflow menus retain their existing buttons and now render with visible three-dot spacing.
+- Browser console: no warnings or errors.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- Spark production web image build and container restart: passed.
 
 ## Comparison history
 
-- Initial finding: the previous star handle was oversized, overlapped the Brown-Chat header, exposed a browser tooltip, compressed the chat layout, and did not match the Codex floating-panel hierarchy.
-- First fix: replaced it with a fixed narrow rail, compact star control, and an independent rounded panel.
-- User follow-up: removed vertical drag, restored click-driven horizontal open/close, and added persistent pin/unpin behavior.
-- Post-fix evidence: ESLint, TypeScript, and the Next.js production build pass; the deployed health and chat routes return HTTP 200. Authenticated browser capture remains unavailable.
+- Initial P2: character glyphs produced inconsistent optical centers, narrow overflow dots, and mismatched section-heading controls.
+- Fix: replaced character glyphs with dedicated vector icon components, normalized control boxes, and added independent section disclosure states.
+- Post-fix evidence: focused comparison shows centered add controls, readable overflow spacing, consistent heading alignment, and cleaner surface edges in the rendered implementation.
 
-## Implementation checklist
+## Follow-up polish
 
-- Capture the authenticated open-panel state at the same desktop viewport as the reference.
-- Test click toggle, horizontal open/close animation, pin, and unpin.
-- Confirm project menus and profile controls remain above the chat and inside the panel bounds.
-- Adjust only residual P2/P3 spacing differences after screenshot comparison.
+- None required for this scope.
 
-final result: blocked
+final result: passed

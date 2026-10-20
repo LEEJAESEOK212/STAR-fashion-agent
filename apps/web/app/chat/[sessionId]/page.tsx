@@ -254,16 +254,17 @@ export default function ChatDetailPage() {
 
       <section className="chat-workspace">
         <header className="chat-header">
-          <div><strong>{session?.title ?? "대화 불러오는 중"}</strong><span><i /> STAR</span></div>
+          <div><strong>{session?.title ?? "대화 불러오는 중"}</strong><span><i /><b className="star-wordmark">STAR</b></span></div>
           <Link href="/">홈으로</Link>
         </header>
         <div className="chat-thread-shell">
-          <div className="chat-thread" onScroll={handleThreadScroll}>
+          <div className="chat-scroll-viewport" onScroll={handleThreadScroll}>
+          <div className="chat-thread">
             {session?.messages.map((message) => (
             <div className={`message-row ${message.role} ${message.id === streamingMessageId ? "pending-message" : ""}`} key={message.id}>
               {message.role === "assistant" && <Image src="/star-mark-black.png" alt="STAR" width={34} height={34} />}
               <div className="message-bubble">
-                {message.role === "assistant" && <strong>STAR</strong>}
+                {message.role === "assistant" && <strong className="star-wordmark star-agent-name">STAR</strong>}
                 {message.attachments.length > 0 && (
                   <div className="message-attachments">
                     {message.attachments.map((attachment) => attachment.kind === "image" ? (
@@ -305,6 +306,7 @@ export default function ChatDetailPage() {
                 )}
               </div>
             )}
+          </div>
           </div>
           <div className="thread-scrollbar" aria-hidden="true"><span /></div>
         </div>

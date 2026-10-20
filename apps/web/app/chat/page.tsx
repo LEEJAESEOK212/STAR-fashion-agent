@@ -180,14 +180,12 @@ function NewChatContent() {
 
       <section className="chat-workspace">
         <header className="chat-header">
-          <div><strong>{selectedProject?.name ?? "새 대화"}</strong><span><i /> STAR</span></div>
+          <div><strong>{selectedProject?.name ?? "새 대화"}</strong><span><i /><b className="star-wordmark">STAR</b></span></div>
           <Link href="/">홈으로</Link>
         </header>
         <div className="chat-thread-shell">
-          <div
-            className={`chat-thread ${selectedProject ? "project-dashboard-thread" : ""}`}
-            onScroll={handleThreadScroll}
-          >
+          <div className="chat-scroll-viewport" onScroll={handleThreadScroll}>
+          <div className={`chat-thread ${selectedProject ? "project-dashboard-thread" : ""}`}>
             {selectedProject ? (
             <section className="project-dashboard">
               <nav className="project-breadcrumb" aria-label="프로젝트 경로">
@@ -258,6 +256,7 @@ function NewChatContent() {
                 {error && <p className="chat-error" role="alert">{error}</p>}
               </div>
             )}
+          </div>
           </div>
           <div className="thread-scrollbar" aria-hidden="true"><span /></div>
         </div>
