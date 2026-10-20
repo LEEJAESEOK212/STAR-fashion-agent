@@ -472,5 +472,5 @@ DGX Spark에서 만든 패션 에이전트를 개인 Mac 환경으로 옮기려�
 
 - 질문: 모델 가중치, 운영 DB, 사용자 업로드와 같은 대용량·민감 데이터를 포함해 폴더를 그대로 Git에 올릴지 결정이 필요합니다.
 - 답변: 현재까지 만든 애플리케이션 폴더와 내부 소스, DB 마이그레이션, 디자인 원본·QA 자료, Docker·네트워크·터널 설정, Windows와 Mac 초기 설정 문서를 모두 비공개 Git 저장소에 보존한다. Gemma, BGE-M3, Whisper 등 재설치 가능한 가중치와 Hugging Face 캐시, 운영 DB/Qdrant, 사용자 업로드, 실제 `.env`는 Git에서 제외하되 동일한 폴더명과 README를 남겨 정확한 설치 위치와 명령을 기록한다.
-- 상태: 부분 해결 — 로컬 Git 저장소 초기화와 전체 파일 스테이징, 모델·런타임 placeholder, 상세 문서와 portable backup 스크립트 작성 완료. 비공개 원격 `LEEJAESEOK212/STAR-fashion-agent` 연결 및 전용 SSH 키 생성 완료. 공개키를 GitHub 계정에 등록한 뒤 최초 push 필요
+- 상태: 해결 — 로컬 Git 저장소 초기화, 전체 소스·디자인·설정·문서 commit, 모델·런타임 placeholder, portable backup 스크립트 작성 완료. 비공개 원격 `LEEJAESEOK212/STAR-fashion-agent` 연결과 STAR 전용 WSL SSH 키 인증 완료
 
