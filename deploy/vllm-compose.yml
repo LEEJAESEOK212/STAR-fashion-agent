@@ -1,0 +1,26 @@
+services:
+  vllm-gemma-4-26b-a4b-it:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-gemma-4-26b-a4b-it
+    ports:
+      - "7510:8000"
+    volumes:
+      - /home/ai-010/.cache/huggingface:/root/.cache/huggingface
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command:
+      - --model
+      - google/gemma-4-26B-A4B-it
+      - --served-model-name
+      - google/gemma-4-26B-A4B-it
+      - --gpu-memory-utilization
+      - "0.7"
+      - --max-model-len
+      - "8192"
+    restart: unless-stopped

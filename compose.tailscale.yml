@@ -1,0 +1,12 @@
+services:
+  api:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  caddy:
+    ports: !override
+      - "127.0.0.1:8081:80"
+    volumes:
+      - ./Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config

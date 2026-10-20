@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local environments and secrets
+.venv/
+.env
+.env.*
+!.env.production.example
+!**/.env.example
+.env.local
+.env.production
+backups/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Databases, exports, user data, and logs
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.sql.gz
+*.dump
+*.tar
+*.tar.gz
+*.zst
+*.log
+runtime/**
+!runtime/**/
+!runtime/**/README.md
+!runtime/**/.gitkeep
+
+# Model weights and generated indexes
+*.safetensors
+*.gguf
+*.onnx
+*.pt
+*.pth
+*.ckpt
+models/**
+!models/**/
+!models/**/README.md
+!models/**/.gitkeep
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Editors and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
