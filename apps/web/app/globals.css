@@ -2112,6 +2112,15 @@ body {
   filter: none;
 }
 
+.star-landing .hero-composer button {
+  padding: 0;
+}
+
+.star-landing .hero-composer button img {
+  transform: translate(-2px, -4.5px) scale(1.35);
+  transform-origin: center;
+}
+
 @media (max-width: 700px) {
   .chat-scroll-viewport {
     overscroll-behavior-y: auto;
@@ -3231,4 +3240,13 @@ body {
 .chat-page .chat-sidebar::before {
   background: var(--star-chat-chocolate-deep);
   border-right: 0;
+}
+
+.chat-page .pinned-threads > p,
+.chat-page .pinned-thread-link > .thread-title-fade {
+  color: #f0f0ea;
+}
+
+.chat-page .pinned-thread-icons {
+  color: var(--star-chat-blue-soft);
 }
