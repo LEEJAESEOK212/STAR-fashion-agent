@@ -6,7 +6,9 @@ import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatComposer } from "@/app/components/chat-composer";
-import { ChatSidebar } from "@/app/components/chat-sidebar";
+import { ChatHomeLink } from "@/app/components/chat-home-link";
+import { ChatIcon, ChatSidebar } from "@/app/components/chat-sidebar";
+import { GenerationStatus, type GenerationDisplayState } from "@/app/components/generation-status";
 import { MarkdownMessage } from "@/app/components/markdown-message";
 import { useTransientScrollbar } from "@/app/components/use-transient-scrollbar";
 import { VoiceMode } from "@/app/components/voice-mode";
@@ -26,11 +28,27 @@ import type {
   PendingAttachment,
 } from "@/lib/chat";
 
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function stablePauseContent(content: string) {
+  if (!content || /\s$/.test(content) || /[.,!?;:)\]}\"'`…。，！？：；]$/.test(content)) return content;
+  return content.replace(/[\p{L}\p{N}_-]+$/u, "");
+}
+
 export default function ChatDetailPage() {
   const router = useRouter();
   const handleThreadScroll = useTransientScrollbar<HTMLDivElement>();
   const { sessionId } = useParams<{ sessionId: string }>();
   const generationStartedFor = useRef<string | null>(null);
+  const generationAbortRef = useRef<AbortController | null>(null);
+  const generationStopReasonRef = useRef<"pause" | "stop" | "send-now" | null>(null);
+  const generationPausedRef = useRef(false);
+  const generationPauseControlRef = useRef<((action: "resume" | "stop" | "send-now") => void) | null>(null);
+  const generationStartedAtRef = useRef(0);
+  const generationPausedAtRef = useRef<number | null>(null);
+  const generationPausedDurationRef = useRef(0);
   const voiceRequestedRef = useRef(false);
   const [session, setSession] = useState<ChatSessionDetail | null>(null);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
@@ -40,6 +58,10 @@ export default function ChatDetailPage() {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGenerationPaused, setIsGenerationPaused] = useState(false);
+  const [generationState, setGenerationState] = useState<GenerationDisplayState>("idle");
+  const [generationDuration, setGenerationDuration] = useState<number | null>(null);
+  const [queuedPrompt, setQueuedPrompt] = useState("");
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [voiceOpen, setVoiceOpen] = useState(false);
@@ -51,6 +73,13 @@ export default function ChatDetailPage() {
     generationStartedFor.current = inputMessage.id;
     setError("");
     setIsGenerating(true);
+    generationPausedRef.current = false;
+    generationStartedAtRef.current = performance.now();
+    generationPausedAtRef.current = null;
+    generationPausedDurationRef.current = 0;
+    setGenerationState("thinking");
+    setGenerationDuration(null);
+    setIsGenerationPaused(false);
     const placeholderId = `stream-${inputMessage.id}`;
     const placeholder: ChatMessage = {
       id: placeholderId,
@@ -66,58 +95,174 @@ export default function ChatDetailPage() {
       ...current,
       messages: [...current.messages, placeholder],
     } : current);
-    const completion: { output: ChatMessage | null } = { output: null };
+    const completion: { output: ChatMessage | null; sessionTitle: string | null } = {
+      output: null,
+      sessionTitle: null,
+    };
+    let visibleContent = "";
+    let pauseResolver: ((action: "resume" | "stop" | "send-now") => void) | null = null;
+    let pendingPauseAction: "resume" | "stop" | "send-now" | null = null;
+    generationPauseControlRef.current = (action) => {
+      if (pauseResolver) pauseResolver(action);
+      else pendingPauseAction = action;
+    };
     try {
-      await apiEventStream(
-        `/chat/sessions/${sessionId}/generate/stream`,
-        ({ event, data }) => {
-          if (event === "delta") {
-            const chunk = (data as { content?: unknown }).content;
-            if (typeof chunk !== "string") return;
-            setSession((current) => current ? {
-              ...current,
-              messages: current.messages.map((message) => message.id === placeholderId
-                ? { ...message, content: message.content + chunk }
-                : message),
-            } : current);
-            return;
-          }
-          if (event === "error") {
-            const detail = (data as { detail?: unknown }).detail;
-            throw new Error(typeof detail === "string" ? detail : "답변 스트리밍에 실패했습니다.");
-          }
-          if (event === "complete") {
-            const completeData = data as { output?: ChatMessage; session_title?: unknown };
-            const output = completeData.output;
-            if (!output) throw new Error("완료된 답변을 받지 못했습니다.");
-            const sessionTitle = typeof completeData.session_title === "string"
-              ? completeData.session_title
-              : null;
-            completion.output = output;
-            setSession((current) => current ? {
-              ...current,
-              title: sessionTitle ?? current.title,
-              messages: current.messages.map((message) => message.id === placeholderId ? output : message),
-              updated_at: output.created_at,
-            } : current);
-            if (sessionTitle) {
-              setSessions((current) => current.map((item) => item.id === sessionId
-                ? { ...item, title: sessionTitle, updated_at: output.created_at }
-                : item));
+      while (true) {
+        const abortController = new AbortController();
+        generationAbortRef.current = abortController;
+        completion.output = null;
+        let awaitingFirstDelta = true;
+        try {
+          await apiEventStream(
+            `/chat/sessions/${sessionId}/generate/stream`,
+            ({ event, data }) => {
+              if (event === "delta") {
+                const chunk = (data as { content?: unknown }).content;
+                if (typeof chunk !== "string") return;
+                if (awaitingFirstDelta) {
+                  awaitingFirstDelta = false;
+                  setGenerationState("streaming");
+                }
+                visibleContent += chunk;
+                setSession((current) => current ? {
+                  ...current,
+                  messages: current.messages.map((message) => message.id === placeholderId
+                    ? { ...message, content: message.content + chunk }
+                    : message),
+                } : current);
+                return;
+              }
+              if (event === "error") {
+                const detail = (data as { detail?: unknown }).detail;
+                throw new Error(typeof detail === "string" ? detail : "답변 스트리밍에 실패했습니다.");
+              }
+              if (event === "complete") {
+                const completeData = data as { output?: ChatMessage; session_title?: unknown };
+                const output = completeData.output;
+                if (!output) throw new Error("완료된 답변을 받지 못했습니다.");
+                const sessionTitle = typeof completeData.session_title === "string"
+                  ? completeData.session_title
+                  : null;
+                completion.output = output;
+                completion.sessionTitle = sessionTitle;
+                if (sessionTitle) {
+                  setSessions((current) => current.map((item) => item.id === sessionId
+                    ? { ...item, title: sessionTitle, updated_at: output.created_at }
+                    : item));
+                }
+              }
+            },
+            {
+              method: "POST",
+              signal: abortController.signal,
+              body: visibleContent.trim()
+                ? JSON.stringify({ resume_from: visibleContent.trimEnd() })
+                : undefined,
+            },
+          );
+          if (generationStopReasonRef.current) throw new DOMException("Aborted", "AbortError");
+          const completedOutput = completion.output as ChatMessage | null;
+          if (!completedOutput) throw new Error("답변 스트림이 완료되기 전에 종료됐습니다.");
+          setSession((current) => current ? {
+            ...current,
+            title: completion.sessionTitle ?? current.title,
+            messages: current.messages.map((message) => message.id === placeholderId
+              ? completedOutput
+              : message),
+            updated_at: completedOutput.created_at,
+          } : current);
+          setGenerationDuration(Math.max(
+            0,
+            performance.now() - generationStartedAtRef.current - generationPausedDurationRef.current,
+          ));
+          setGenerationState("complete");
+          break;
+        } catch (requestError) {
+          if (isAbortError(requestError) && generationStopReasonRef.current === "pause") {
+            const stableContent = stablePauseContent(visibleContent);
+            if (stableContent !== visibleContent) {
+              visibleContent = stableContent;
+              setSession((current) => current ? {
+                ...current,
+                messages: current.messages.map((message) => message.id === placeholderId
+                  ? { ...message, content: stableContent }
+                  : message),
+              } : current);
             }
+            const action = pendingPauseAction ?? await new Promise<"resume" | "stop" | "send-now">((resolve) => {
+              pauseResolver = resolve;
+            });
+            pauseResolver = null;
+            pendingPauseAction = null;
+            if (action === "resume") {
+              if (generationPausedAtRef.current !== null) {
+                generationPausedDurationRef.current += performance.now() - generationPausedAtRef.current;
+                generationPausedAtRef.current = null;
+              }
+              generationStopReasonRef.current = null;
+              generationPausedRef.current = false;
+              setIsGenerationPaused(false);
+              setGenerationState("thinking");
+              continue;
+            }
+            generationStopReasonRef.current = action;
           }
-        },
-        { method: "POST" },
-      );
-      if (!completion.output) throw new Error("답변 스트림이 완료되기 전에 종료됐습니다.");
-    } catch (requestError) {
-      generationStartedFor.current = null;
-      setSession((current) => current ? {
-        ...current,
-        messages: current.messages.filter((message) => message.id !== placeholderId),
-      } : current);
-      setError(requestError instanceof Error ? requestError.message : "답변을 생성하지 못했습니다.");
+          generationStartedFor.current = null;
+          const wasStopped = isAbortError(requestError) && generationStopReasonRef.current !== null;
+          if (isAbortError(requestError)) {
+            setGenerationState(generationStopReasonRef.current === "stop" ? "stopped" : "idle");
+          } else {
+            setGenerationState("idle");
+          }
+          if (
+            wasStopped
+            && generationStopReasonRef.current === "send-now"
+            && visibleContent.trim()
+          ) {
+            try {
+              const interrupted = await apiRequest<ChatMessage>(
+                `/chat/sessions/${sessionId}/messages/interrupted`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({ output: visibleContent.trim() }),
+                },
+              );
+              completion.output = interrupted;
+              setSession((current) => current ? {
+                ...current,
+                messages: current.messages.map((message) => message.id === placeholderId
+                  ? interrupted
+                  : message),
+                updated_at: interrupted.created_at,
+              } : current);
+            } catch (persistError) {
+              setSession((current) => current ? {
+                ...current,
+                messages: current.messages.filter((message) => message.id !== placeholderId),
+              } : current);
+              setError(persistError instanceof Error
+                ? persistError.message
+                : "중단된 답변을 저장하지 못했습니다.");
+            }
+          } else {
+            setSession((current) => current ? {
+              ...current,
+              messages: current.messages.filter((message) => message.id !== placeholderId),
+            } : current);
+          }
+          if (!isAbortError(requestError)) {
+            setError(requestError instanceof Error ? requestError.message : "답변을 생성하지 못했습니다.");
+          }
+          break;
+        }
+      }
     } finally {
+      generationAbortRef.current = null;
+      generationPauseControlRef.current = null;
+      generationStopReasonRef.current = null;
+      generationPausedRef.current = false;
+      generationPausedAtRef.current = null;
+      setIsGenerationPaused(false);
       setStreamingMessageId(null);
       setIsGenerating(false);
     }
@@ -199,6 +344,8 @@ export default function ChatDetailPage() {
     if ((!content && !pending.length) || isGenerating || isSending || !session) return null;
     setError("");
     setIsSending(true);
+    if (rawContent === draft) setDraft("");
+    if (pending.length) setAttachments([]);
     let uploaded: ChatAttachment[] = [];
     let input: ChatMessage | null = null;
     try {
@@ -209,8 +356,6 @@ export default function ChatDetailPage() {
       });
       input = createdInput;
       releaseAttachmentPreviews(pending);
-      if (pending.length) setAttachments([]);
-      if (rawContent === draft) setDraft("");
       setSession((current) => current ? {
         ...current,
         messages: [...current.messages, createdInput],
@@ -218,6 +363,8 @@ export default function ChatDetailPage() {
       return await generate(createdInput);
     } catch (requestError) {
       if (!input && uploaded.length) await deleteUploadedAttachments(uploaded);
+      setDraft((current) => current || rawContent);
+      if (!input && pending.length) setAttachments((current) => current.length ? current : pending);
       setError(requestError instanceof Error ? requestError.message : "메시지를 보내지 못했습니다.");
       return null;
     } finally {
@@ -225,8 +372,24 @@ export default function ChatDetailPage() {
     }
   }, [draft, generate, isGenerating, isSending, session, sessionId]);
 
+  useEffect(() => {
+    if (!queuedPrompt || isGenerating || isSending || !session) return;
+    const nextPrompt = queuedPrompt;
+    setQueuedPrompt("");
+    void sendMessage(nextPrompt);
+  }, [isGenerating, isSending, queuedPrompt, sendMessage, session]);
+
+  useEffect(() => () => generationAbortRef.current?.abort(), []);
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isGenerating || isSending) {
+      const content = draft.trim();
+      if (!content) return;
+      setQueuedPrompt((current) => current ? `${current}\n\n${content}` : content);
+      setDraft("");
+      return;
+    }
     void sendMessage(draft, attachments);
   }
 
@@ -254,13 +417,13 @@ export default function ChatDetailPage() {
 
       <section className="chat-workspace">
         <header className="chat-header">
-          <div><strong>{session?.title ?? "대화 불러오는 중"}</strong><span><i /><b className="star-wordmark">STAR</b></span></div>
-          <Link href="/">홈으로</Link>
+          <div className="chat-header-context"><ChatIcon /><strong>{session?.title ?? "대화 불러오는 중"}</strong></div>
+          <ChatHomeLink />
         </header>
         <div className="chat-thread-shell">
           <div className="chat-scroll-viewport" onScroll={handleThreadScroll}>
           <div className="chat-thread">
-            {session?.messages.map((message) => (
+            {session?.messages.map((message) => message.id === streamingMessageId && !message.content ? null : (
             <div className={`message-row ${message.role} ${message.id === streamingMessageId ? "pending-message" : ""}`} key={message.id}>
               {message.role === "assistant" && <Image src="/star-mark-black.png" alt="STAR" width={34} height={34} />}
               <div className="message-bubble">
@@ -291,13 +454,14 @@ export default function ChatDetailPage() {
                   </div>
                 )}
                 {message.role === "assistant" ? (
-                  <MarkdownMessage content={message.content} isStreaming={message.id === streamingMessageId} />
+                  <MarkdownMessage content={message.content} />
                 ) : (
                   <p>{message.content}</p>
                 )}
               </div>
             </div>
             ))}
+            <GenerationStatus state={generationState} durationMs={generationDuration} />
             {error && (
               <div className="chat-generation-error" role="alert">
                 <p>{error}</p>
@@ -317,7 +481,42 @@ export default function ChatDetailPage() {
             attachments={attachments}
             setAttachments={setAttachments}
             disabled={isGenerating || isSending}
-            buttonLabel={isSending ? "업로드 중" : isGenerating ? "생성 중" : "보내기"}
+            inputDisabled={false}
+            allowSubmitWhileDisabled={isGenerating || isSending}
+            isGenerating={isGenerating}
+            isPaused={isGenerationPaused}
+            buttonLabel={isGenerating || isSending ? "대기열에 추가" : "보내기"}
+            queuedPrompt={queuedPrompt}
+            onSendQueuedNow={() => {
+              if (generationPausedRef.current) {
+                generationPauseControlRef.current?.("send-now");
+              } else {
+                generationStopReasonRef.current = "send-now";
+                generationAbortRef.current?.abort();
+              }
+            }}
+            onCancelQueued={() => setQueuedPrompt("")}
+            onTogglePause={() => {
+              if (generationPausedRef.current) {
+                generationPauseControlRef.current?.("resume");
+              } else {
+                generationStopReasonRef.current = "pause";
+                generationPausedRef.current = true;
+                generationPausedAtRef.current = performance.now();
+                setIsGenerationPaused(true);
+                setGenerationState("paused");
+                generationAbortRef.current?.abort();
+              }
+            }}
+            onStopGeneration={() => {
+              setQueuedPrompt("");
+              if (generationPausedRef.current) {
+                generationPauseControlRef.current?.("stop");
+              } else {
+                generationStopReasonRef.current = "stop";
+                generationAbortRef.current?.abort();
+              }
+            }}
             onSubmit={handleSubmit}
             onError={setError}
             onVoiceOpen={() => {
@@ -325,7 +524,6 @@ export default function ChatDetailPage() {
               setVoiceOpen(true);
             }}
           />
-          <p>관련 대화 3턴을 참고하며 답변을 실시간으로 표시합니다.</p>
         </div>
       </section>
       {selectedImage && (

@@ -11,6 +11,14 @@ class ChatInput(BaseModel):
     project_id: uuid.UUID | None = None
 
 
+class ChatInterruptedOutput(BaseModel):
+    output: str = Field(min_length=1, max_length=48_000)
+
+
+class ChatGenerationControl(BaseModel):
+    resume_from: str | None = Field(default=None, min_length=1, max_length=48_000)
+
+
 class ChatProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     parent_id: uuid.UUID | None = None
@@ -68,6 +76,7 @@ class ChatMessageResponse(BaseModel):
     session_id: uuid.UUID
     role: Literal["user", "assistant", "system"]
     content: str
+    is_interrupted: bool = False
     created_at: datetime
     attachments: list[ChatAttachmentResponse] = Field(default_factory=list)
 

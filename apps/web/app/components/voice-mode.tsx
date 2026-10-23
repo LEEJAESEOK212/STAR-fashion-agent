@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 
 import { apiRequest } from "@/lib/api";
@@ -25,7 +24,9 @@ type VoiceModeProps = {
 const MAX_RECORDING_MS = 60_000;
 const SPEECH_START_LEVEL = 12;
 const SILENCE_LEVEL = 7;
-const SILENCE_DURATION_MS = 1_400;
+const SILENCE_DURATION_MS = 2_000;
+const BARGE_IN_LEVEL = 18;
+const BARGE_IN_HOLD_MS = 180;
 
 function recordingMimeType() {
   const candidates = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"];
@@ -49,6 +50,7 @@ export function VoiceMode({
 }: VoiceModeProps) {
   const [state, setState] = useState<VoiceState>("idle");
   const [level, setLevel] = useState(0);
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,6 +62,11 @@ export function VoiceMode({
   const openRef = useRef(open);
   const stateRef = useRef<VoiceState>(state);
   const spokenReplyRef = useRef<string | null>(null);
+  const speechInterruptedRef = useRef(false);
+  const recordingStartingRef = useRef(false);
+  const bargeInStreamRef = useRef<MediaStream | null>(null);
+  const bargeInContextRef = useRef<AudioContext | null>(null);
+  const bargeInAnimationRef = useRef<number | null>(null);
 
   useEffect(() => { openRef.current = open; }, [open]);
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -70,6 +77,16 @@ export function VoiceMode({
     void audioContextRef.current?.close();
     audioContextRef.current = null;
     setLevel(0);
+    setIsUserSpeaking(false);
+  }, []);
+
+  const stopBargeInMonitor = useCallback(() => {
+    if (bargeInAnimationRef.current !== null) cancelAnimationFrame(bargeInAnimationRef.current);
+    bargeInAnimationRef.current = null;
+    bargeInStreamRef.current?.getTracks().forEach((track) => track.stop());
+    bargeInStreamRef.current = null;
+    void bargeInContextRef.current?.close();
+    bargeInContextRef.current = null;
   }, []);
 
   const stopRecording = useCallback((discard = false) => {
@@ -91,7 +108,9 @@ export function VoiceMode({
       setState("error");
       return;
     }
+    speechInterruptedRef.current = true;
     window.speechSynthesis.cancel();
+    speechInterruptedRef.current = false;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "ko-KR";
     const koreanVoice = window.speechSynthesis
@@ -100,10 +119,10 @@ export function VoiceMode({
     if (koreanVoice) utterance.voice = koreanVoice;
     utterance.onstart = () => setState("speaking");
     utterance.onend = () => {
-      if (openRef.current) setState("idle");
+      if (openRef.current && !speechInterruptedRef.current) setState("idle");
     };
     utterance.onerror = () => {
-      if (!openRef.current) return;
+      if (!openRef.current || speechInterruptedRef.current) return;
       onError("답변 음성을 재생하지 못했습니다.");
       setState("error");
     };
@@ -135,12 +154,14 @@ export function VoiceMode({
   }, [onError, onTranscript, speak]);
 
   const startRecording = useCallback(async () => {
-    if (!openRef.current || !ready || waiting || stateRef.current === "listening") return;
+    if (!openRef.current || !ready || waiting || stateRef.current === "listening" || recordingStartingRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       onError("이 브라우저에서는 음성 녹음을 지원하지 않습니다.");
       setState("error");
       return;
     }
+    recordingStartingRef.current = true;
+    speechInterruptedRef.current = true;
     window.speechSynthesis?.cancel();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -168,7 +189,9 @@ export function VoiceMode({
         if (average >= SPEECH_START_LEVEL) {
           speechDetectedRef.current = true;
           silenceStartedAtRef.current = null;
+          setIsUserSpeaking(true);
         } else if (speechDetectedRef.current && average <= SILENCE_LEVEL) {
+          setIsUserSpeaking(false);
           silenceStartedAtRef.current ??= now;
           if (
             now - silenceStartedAtRef.current >= SILENCE_DURATION_MS
@@ -179,6 +202,7 @@ export function VoiceMode({
           }
         } else {
           silenceStartedAtRef.current = null;
+          if (!speechDetectedRef.current) setIsUserSpeaking(false);
         }
         animationRef.current = requestAnimationFrame(updateMeter);
       };
@@ -209,6 +233,7 @@ export function VoiceMode({
         if (!discardRef.current) void transcribe(blob, mimeType);
       };
       recorder.start();
+      stateRef.current = "listening";
       setState("listening");
       onError("");
       timeoutRef.current = setTimeout(() => stopRecording(), MAX_RECORDING_MS);
@@ -220,8 +245,61 @@ export function VoiceMode({
           : "마이크를 시작하지 못했습니다.",
       );
       setState("error");
+    } finally {
+      recordingStartingRef.current = false;
     }
   }, [onError, ready, stopMeter, stopRecording, transcribe, waiting]);
+
+  useEffect(() => {
+    if (!open || state !== "speaking" || !ready) return;
+    let cancelled = false;
+    let voiceStartedAt: number | null = null;
+
+    void navigator.mediaDevices?.getUserMedia({
+      audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true },
+    }).then((stream) => {
+      if (cancelled || !openRef.current || stateRef.current !== "speaking") {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const audioContext = new AudioContext();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      audioContext.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Uint8Array(analyser.frequencyBinCount);
+      bargeInStreamRef.current = stream;
+      bargeInContextRef.current = audioContext;
+
+      const detectBargeIn = () => {
+        analyser.getByteFrequencyData(samples);
+        const average = samples.reduce((sum, sample) => sum + sample, 0) / samples.length;
+        const now = performance.now();
+        if (average >= BARGE_IN_LEVEL) {
+          voiceStartedAt ??= now;
+          if (now - voiceStartedAt >= BARGE_IN_HOLD_MS) {
+            stopBargeInMonitor();
+            speechInterruptedRef.current = true;
+            window.speechSynthesis.cancel();
+            stateRef.current = "idle";
+            setState("idle");
+            window.setTimeout(() => void startRecording(), 0);
+            return;
+          }
+        } else {
+          voiceStartedAt = null;
+        }
+        bargeInAnimationRef.current = requestAnimationFrame(detectBargeIn);
+      };
+      detectBargeIn();
+    }).catch(() => {
+      // Normal playback remains available if background barge-in monitoring is unavailable.
+    });
+
+    return () => {
+      cancelled = true;
+      stopBargeInMonitor();
+    };
+  }, [open, ready, startRecording, state, stopBargeInMonitor]);
 
   useEffect(() => {
     if (!open) return;
@@ -243,35 +321,25 @@ export function VoiceMode({
   useEffect(() => () => {
     openRef.current = false;
     stopRecording(true);
+    stopBargeInMonitor();
     window.speechSynthesis?.cancel();
-  }, [stopRecording]);
+  }, [stopBargeInMonitor, stopRecording]);
 
   function close() {
     stopRecording(true);
+    stopBargeInMonitor();
+    speechInterruptedRef.current = true;
     window.speechSynthesis?.cancel();
     setState("idle");
     onClose();
   }
 
-  function handleControlClick() {
-    if (state === "listening") {
-      stopRecording();
-      return;
-    }
-    if (state === "speaking") {
-      window.speechSynthesis.cancel();
-      setState("idle");
-      return;
-    }
-    if (state === "idle" || state === "error") void startRecording();
-  }
-
   if (!open) return null;
 
   const displayState = (!ready || waiting) && state === "idle" ? "thinking" : state;
-  const style = { "--voice-scale": String(1 + level * 0.18) } as CSSProperties;
+  const style = { "--voice-scale": String(1 + level * 0.16) } as CSSProperties;
   return (
-    <div className={`voice-mode voice-mode-${displayState}`} role="dialog" aria-modal="true" aria-label="음성 대화 모드" style={style}>
+    <div className={`voice-mode voice-mode-${displayState}${isUserSpeaking ? " voice-mode-user-speaking" : ""}`} role="dialog" aria-modal="true" aria-label="음성 대화 모드" style={style}>
       <button className="voice-mode-back" type="button" aria-label="채팅으로 돌아가기" onClick={close}>
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 5 8 12l7 7M8 12h11" /></svg>
       </button>
@@ -283,24 +351,11 @@ export function VoiceMode({
           className="voice-mode-mark"
           aria-hidden="true"
         >
-          <Image src="/star-mark-black.png" alt="" width={168} height={168} priority />
+          <svg className="voice-mode-star" viewBox="0 0 100 100" aria-hidden="true">
+            <path d="M50 5.5 60.8 37h33.1L67.1 56.5l10.2 31.9L50 69 22.7 88.4l10.2-31.9L6.1 37h33.1L50 5.5Z" />
+          </svg>
         </div>
       </div>
-      <button
-        className={`voice-mode-control voice-mode-control-${displayState}`}
-        type="button"
-        aria-label={displayState === "listening" ? "녹음 완료" : displayState === "speaking" ? "답변 음성 중지" : "음성 녹음 시작"}
-        onClick={handleControlClick}
-        disabled={displayState === "transcribing" || displayState === "thinking"}
-      >
-        {displayState === "listening" || displayState === "speaking" ? (
-          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>
-        ) : displayState === "transcribing" || displayState === "thinking" ? (
-          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="18" cy="12" r="1.8" /></svg>
-        ) : (
-          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" /></svg>
-        )}
-      </button>
     </div>
   );
 }

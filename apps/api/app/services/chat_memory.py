@@ -216,8 +216,12 @@ async def delete_session_memory(session_id: uuid.UUID) -> None:
 async def semantic_context(messages: list[ChatMessage]) -> list[ChatMessage]:
     if not messages or messages[-1].role != "user":
         return messages
-    current = messages[-1]
-    turns = completed_turns(messages[:-1])
+    pending_start = len(messages) - 1
+    while pending_start > 0 and messages[pending_start - 1].role == "user":
+        pending_start -= 1
+    pending_users = messages[pending_start:]
+    current = pending_users[-1]
+    turns = completed_turns(messages[:pending_start])
     limit = settings.chat_memory_top_k
     if len(turns) <= limit:
         selected = turns
@@ -239,5 +243,20 @@ async def semantic_context(messages: list[ChatMessage]) -> list[ChatMessage]:
                     selected_ids.add(turn.user.id)
                 if len(selected) == limit:
                     break
+        latest_interrupted = next(
+            (turn for turn in reversed(turns) if turn.assistant.is_interrupted),
+            None,
+        )
+        if latest_interrupted and all(
+            turn.user.id != latest_interrupted.user.id for turn in selected
+        ):
+            selected = [
+                *(selected[-(limit - 1):] if limit > 1 else []),
+                latest_interrupted,
+            ]
         selected.sort(key=lambda turn: positions[turn.user.id])
-    return [message for turn in selected for message in (turn.user, turn.assistant)] + [current]
+    return [
+        message
+        for turn in selected
+        for message in (turn.user, turn.assistant)
+    ] + pending_users

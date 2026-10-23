@@ -25,6 +25,19 @@ IMAGE_ANALYSIS_INSTRUCTION = (
     "작아서 확실히 읽히지 않는 글자나 수치는 추측해서 만들지 말고 불확실하다고 밝히세요."
 )
 
+INTERRUPTED_CONTINUATION_INSTRUCTION = (
+    "바로 앞의 assistant 답변은 사용자가 생성 도중 중단한 지점까지 이미 전달된 내용입니다. "
+    "다음 사용자 요청이 '계속', '이어서', '연장'처럼 명확히 그 작업의 연장을 요구할 때만 "
+    "중단 지점 다음부터 이어서 수행하세요. 사용자가 원래 명령을 반복하거나 '처음부터', "
+    "'1부터'처럼 새 시작점을 명시하면 이전 중단 지점은 무시하고 새 요청을 그대로 따르세요."
+)
+
+CANCELED_REQUEST_INSTRUCTION = (
+    "바로 앞의 사용자 요청은 답변 생성 도중 완전히 취소되었습니다. 그 요청을 이어서 수행하거나 "
+    "완료하려고 하지 말고, 다음 사용자 요청을 독립적인 최신 명령으로 정확히 따르세요. 다음 요청이 "
+    "시작점이나 범위를 명시하면 반드시 그 시작점부터 새로 수행하세요."
+)
+
 
 @dataclass(frozen=True)
 class CompletionMessage:
@@ -48,9 +61,21 @@ async def chat_payload_messages(messages: list[ChatMessage]) -> list[dict[str, o
         {"role": "system", "content": settings.chat_system_prompt}
     ]
     remaining_attachment_characters = settings.attachment_text_max_characters
+    previous_role: str | None = None
     for message in messages:
+        if message.role == "user" and previous_role == "user":
+            payload_messages.append({
+                "role": "system",
+                "content": CANCELED_REQUEST_INSTRUCTION,
+            })
         if not message.attachments:
             payload_messages.append({"role": message.role, "content": message.content})
+            if message.role == "assistant" and getattr(message, "is_interrupted", False):
+                payload_messages.append({
+                    "role": "system",
+                    "content": INTERRUPTED_CONTINUATION_INSTRUCTION,
+                })
+            previous_role = message.role
             continue
 
         image_attachments = [
@@ -94,6 +119,12 @@ async def chat_payload_messages(messages: list[ChatMessage]) -> list[dict[str, o
         else:
             content = combined_text
         payload_messages.append({"role": message.role, "content": content})
+        if message.role == "assistant" and getattr(message, "is_interrupted", False):
+            payload_messages.append({
+                "role": "system",
+                "content": INTERRUPTED_CONTINUATION_INSTRUCTION,
+            })
+        previous_role = message.role
     return payload_messages
 
 

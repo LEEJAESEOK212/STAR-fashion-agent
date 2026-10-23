@@ -24,6 +24,14 @@ type LandingAuthContextValue = {
 
 const LandingAuthContext = createContext<LandingAuthContextValue | null>(null);
 
+export function ArrowUpRightIcon() {
+  return (
+    <svg className="hero-submit-arrow" aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </svg>
+  );
+}
+
 function useLandingAuth() {
   const context = useContext(LandingAuthContext);
   if (!context) throw new Error("LandingAuthProvider가 필요합니다.");
@@ -68,10 +76,7 @@ export function LandingAuthProvider({ children }: { children: ReactNode }) {
     const chatPath = normalizedPrompt
       ? `/chat?prompt=${encodeURIComponent(normalizedPrompt)}`
       : "/chat";
-    const destination = authState === "authenticated"
-      ? chatPath
-      : `/signin?next=${encodeURIComponent(chatPath)}`;
-    router.push(destination);
+    router.push(chatPath);
   }
 
   return (
@@ -132,7 +137,7 @@ export function LandingPromptComposer({ prompts }: { prompts: readonly string[] 
           required
         />
         <button type="submit" disabled={isChecking} aria-label="검색하고 대화 시작하기">
-          <Image src="/star-arrow-icon-v2.png" alt="" width={24} height={24} />
+          <ArrowUpRightIcon />
         </button>
       </form>
       <div className="prompt-list" aria-label="추천 질문">

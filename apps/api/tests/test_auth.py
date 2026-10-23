@@ -151,3 +151,27 @@ def test_chat_session_is_created_before_generation(
     generation = client.post(f"/api/v1/chat/sessions/{session['id']}/generate")
     assert generation.status_code == 503
     assert "CHAT_API_BASE_URL" in generation.json()["detail"]
+
+
+def test_interrupted_output_is_saved_as_assistant_context(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": "interrupted@example.com",
+            "display_name": "Interrupted User",
+            "password": "very-safe-password",
+            "password_confirm": "very-safe-password",
+        },
+    )
+    created = client.post("/api/v1/chat/sessions", json={"input": "100까지 세어줘"})
+    session_id = created.json()["id"]
+
+    interrupted = client.post(
+        f"/api/v1/chat/sessions/{session_id}/messages/interrupted",
+        json={"output": "1, 2, 3, 4, 5"},
+    )
+
+    assert interrupted.status_code == 201
+    assert interrupted.json()["role"] == "assistant"
+    assert interrupted.json()["content"] == "1, 2, 3, 4, 5"
+    assert interrupted.json()["is_interrupted"] is True

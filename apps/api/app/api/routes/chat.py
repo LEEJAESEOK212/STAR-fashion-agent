@@ -2,10 +2,11 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
@@ -16,7 +17,9 @@ from app.models.chat import ChatAttachment, ChatMessage, ChatProject, ChatSessio
 from app.schemas.chat import (
     ChatAttachmentResponse,
     ChatGenerationResponse,
+    ChatGenerationControl,
     ChatInput,
+    ChatInterruptedOutput,
     ChatMessageResponse,
     ChatProjectCreate,
     ChatProjectResponse,
@@ -65,6 +68,21 @@ ALLOWED_AUDIO_CONTENT_TYPES = {
     "video/mp4",
     "video/webm",
 }
+
+GUEST_CHAT_MAX_TURNS = 3
+
+RESUME_GENERATION_PROMPT = (
+    "방금 일시정지된 답변을 화면에 이미 표시된 마지막 지점 바로 다음부터 이어서 작성하세요. "
+    "표시된 내용을 반복하거나 처음부터 다시 시작하지 말고, 남은 내용만 작성하세요."
+)
+
+
+@dataclass
+class GuestCompletionMessage:
+    role: str
+    content: str
+    attachments: list[ChatAttachment]
+    is_interrupted: bool = False
 
 
 def stream_event(event: str, data: dict[str, object]) -> str:
@@ -120,12 +138,16 @@ async def generation_context(messages: list[ChatMessage]) -> list[ChatMessage]:
         return await semantic_context(messages)
     except MemoryServiceError:
         logger.exception("Semantic chat memory is unavailable; using recent turns.")
-        recent_turns = completed_turns(messages[:-1])[-settings.chat_memory_top_k :]
+        pending_start = len(messages) - 1
+        while pending_start > 0 and messages[pending_start - 1].role == "user":
+            pending_start -= 1
+        pending_users = messages[pending_start:]
+        recent_turns = completed_turns(messages[:pending_start])[-settings.chat_memory_top_k :]
         return [
             message
             for turn in recent_turns
             for message in (turn.user, turn.assistant)
-        ] + [messages[-1]]
+        ] + pending_users
 
 
 async def pending_attachments(
@@ -170,6 +192,7 @@ def message_response(
         session_id=message.session_id,
         role=message.role,
         content=message.content,
+        is_interrupted=message.is_interrupted,
         created_at=message.created_at,
         attachments=attachments if attachments is not None else message.attachments,
     )
@@ -428,6 +451,178 @@ async def delete_pending_attachment(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/guest/generate/stream", response_class=StreamingResponse)
+async def stream_guest_response(
+    messages_json: Annotated[str, Form()],
+    kinds_json: Annotated[str, Form()] = "[]",
+    resume_from: Annotated[str | None, Form()] = None,
+    files: Annotated[list[UploadFile] | None, File()] = None,
+) -> StreamingResponse:
+    uploaded_files = files or []
+    try:
+        raw_messages = json.loads(messages_json)
+        attachment_kinds = json.loads(kinds_json)
+    except json.JSONDecodeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="임시 대화 데이터가 올바르지 않습니다.",
+        ) from error
+
+    if not isinstance(raw_messages, list) or not raw_messages:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="질문을 입력해 주세요.",
+        )
+    if not isinstance(attachment_kinds, list) or any(
+        kind not in {"image", "file"} for kind in attachment_kinds
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="첨부파일 정보가 올바르지 않습니다.",
+        )
+    if len(uploaded_files) != len(attachment_kinds):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="첨부파일 정보가 일치하지 않습니다.",
+        )
+    if len(uploaded_files) > settings.upload_max_attachments_per_message:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"첨부파일은 메시지당 최대 {settings.upload_max_attachments_per_message}개입니다.",
+        )
+
+    messages: list[GuestCompletionMessage] = []
+    previous_role: str | None = None
+    user_turns = 0
+    total_characters = 0
+    for raw_message in raw_messages:
+        if not isinstance(raw_message, dict):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="임시 대화 데이터가 올바르지 않습니다.",
+            )
+        role = raw_message.get("role")
+        content = raw_message.get("content")
+        is_interrupted = raw_message.get("is_interrupted", False)
+        if (
+            role not in {"user", "assistant"}
+            or (not messages and role != "user")
+            or (role == "assistant" and previous_role == "assistant")
+            or not isinstance(content, str)
+            or not isinstance(is_interrupted, bool)
+            or (is_interrupted and role != "assistant")
+            or len(content) > 12_000
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="임시 대화 순서 또는 길이가 올바르지 않습니다.",
+            )
+        total_characters += len(content)
+        if total_characters > 48_000:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="임시 대화가 너무 깁니다. 로그인 후 계속해 주세요.",
+            )
+        if role == "user":
+            user_turns += 1
+        previous_role = role
+        messages.append(GuestCompletionMessage(
+            role=role,
+            content=content,
+            attachments=[],
+            is_interrupted=is_interrupted,
+        ))
+
+    if messages[-1].role != "user":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="답변을 생성할 새 질문이 없습니다.",
+        )
+    if user_turns > GUEST_CHAT_MAX_TURNS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="비로그인 체험은 3번까지 가능합니다. 로그인 후 계속해 주세요.",
+        )
+    if not messages[-1].content.strip() and not uploaded_files:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="질문을 입력해 주세요.",
+        )
+
+    guest_id = uuid.uuid4()
+    temporary_attachments: list[ChatAttachment] = []
+    try:
+        for upload, kind in zip(uploaded_files, attachment_kinds, strict=True):
+            temporary_attachments.append(await save_upload(upload, kind, guest_id))
+    except AttachmentValidationError as error:
+        for attachment in temporary_attachments:
+            await remove_stored_file(attachment)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+    messages[-1].attachments = temporary_attachments
+    resume_prefix = resume_from.strip() if resume_from else ""
+    if resume_prefix:
+        messages.extend([
+            GuestCompletionMessage(
+                role="assistant",
+                content=resume_prefix,
+                attachments=[],
+                is_interrupted=True,
+            ),
+            GuestCompletionMessage(
+                role="user",
+                content=RESUME_GENERATION_PROMPT,
+                attachments=[],
+            ),
+        ])
+
+    async def events() -> AsyncIterator[str]:
+        chunks: list[str] = []
+        output_id = uuid.uuid4()
+        try:
+            yield stream_event("start", {"input_message_id": str(uuid.uuid4())})
+            async for chunk in stream_chat_completion(messages):  # type: ignore[arg-type]
+                chunks.append(chunk)
+                yield stream_event("delta", {"content": chunk})
+            continuation = "".join(chunks).strip()
+            content = f"{resume_prefix}{continuation}".strip()
+            if not content:
+                raise ChatAPIError("Chat API 스트림 응답 내용이 비어 있습니다.")
+            yield stream_event(
+                "complete",
+                {
+                    "output": {
+                        "id": str(output_id),
+                        "user_id": "guest",
+                        "session_id": "guest-session",
+                        "role": "assistant",
+                        "content": content,
+                        "created_at": datetime.now(UTC).isoformat(),
+                        "attachments": [],
+                    }
+                },
+            )
+        except (ChatAPINotConfiguredError, ChatAPIError) as error:
+            yield stream_event("error", {"detail": str(error)})
+        except Exception:
+            logger.exception("Unexpected guest chat generation failure.")
+            yield stream_event("error", {"detail": "답변 스트리밍 중 오류가 발생했습니다."})
+        finally:
+            for attachment in temporary_attachments:
+                await remove_stored_file(attachment)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/sessions", response_model=ChatSessionDetail, status_code=status.HTTP_201_CREATED)
 async def create_session(
     payload: ChatInput, current_user: CurrentUser, db: DatabaseSession
@@ -553,12 +748,6 @@ async def add_user_message(
     db: DatabaseSession,
 ) -> ChatMessageResponse:
     session = await owned_session(session_id, current_user, db)
-    messages = await session_messages(session_id, db)
-    if messages and messages[-1].role == "user":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="이전 질문의 답변 생성을 먼저 완료해 주세요.",
-        )
     content = payload.input.strip()
     attachments = await pending_attachments(payload.attachment_ids, current_user, db)
     if not content and not attachments:
@@ -581,6 +770,49 @@ async def add_user_message(
     await db.commit()
     await db.refresh(message)
     return message_response(message, attachments)
+
+
+@router.post(
+    "/sessions/{session_id}/messages/interrupted",
+    response_model=ChatMessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def save_interrupted_output(
+    session_id: uuid.UUID,
+    payload: ChatInterruptedOutput,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> ChatMessageResponse:
+    session = await owned_session(session_id, current_user, db)
+    messages = await session_messages(session_id, db)
+    if not messages or messages[-1].role != "user":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="중단된 답변을 연결할 사용자 메시지가 없습니다.",
+        )
+    content = payload.output.strip()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="저장할 답변 내용이 없습니다.",
+        )
+
+    output = ChatMessage(
+        session_id=session.id,
+        user_id=current_user.id,
+        role="assistant",
+        content=content,
+        is_interrupted=True,
+    )
+    session.updated_at = datetime.now(UTC)
+    db.add(output)
+    await db.commit()
+    await db.refresh(output)
+    try:
+        await index_turns([ChatTurn(user=messages[-1], assistant=output)])
+    except MemoryServiceError:
+        logger.exception("The interrupted chat turn could not be indexed in Qdrant.")
+    return message_response(output, [])
 
 
 @router.post("/sessions/{session_id}/generate", response_model=ChatGenerationResponse)
@@ -635,7 +867,11 @@ async def generate_response(
 
 @router.post("/sessions/{session_id}/generate/stream", response_class=StreamingResponse)
 async def stream_response(
-    session_id: uuid.UUID, current_user: CurrentUser, db: DatabaseSession
+    session_id: uuid.UUID,
+    request: Request,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    payload: ChatGenerationControl | None = None,
 ) -> StreamingResponse:
     session = await owned_session(session_id, current_user, db)
     messages = await session_messages(session_id, db)
@@ -646,6 +882,24 @@ async def stream_response(
         )
     context = await generation_context(messages)
     input_message = messages[-1]
+    resume_prefix = payload.resume_from.strip() if payload and payload.resume_from else ""
+    if resume_prefix:
+        interrupted = ChatMessage(
+            session_id=session.id,
+            user_id=current_user.id,
+            role="assistant",
+            content=resume_prefix,
+            is_interrupted=True,
+        )
+        interrupted.attachments = []
+        continuation_request = ChatMessage(
+            session_id=session.id,
+            user_id=current_user.id,
+            role="user",
+            content=RESUME_GENERATION_PROMPT,
+        )
+        continuation_request.attachments = []
+        context = [*context, interrupted, continuation_request]
 
     async def events() -> AsyncIterator[str]:
         chunks: list[str] = []
@@ -658,9 +912,13 @@ async def stream_response(
                 chunks.append(chunk)
                 yield stream_event("delta", {"content": chunk})
 
-            content = "".join(chunks).strip()
+            continuation = "".join(chunks).strip()
+            content = f"{resume_prefix}{continuation}".strip()
             if not content:
                 raise ChatAPIError("Chat API 스트림 응답 내용이 비어 있습니다.")
+            if await request.is_disconnected():
+                await db.rollback()
+                return
             output = ChatMessage(
                 session_id=session.id,
                 user_id=current_user.id,

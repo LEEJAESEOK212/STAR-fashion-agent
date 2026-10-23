@@ -27,7 +27,8 @@ export default function SignInPage() {
 function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [mode, setMode] = useState<AuthMode>("login");
+  const requestedMode = searchParams.get("mode");
+  const [mode, setMode] = useState<AuthMode>(requestedMode === "signup" ? "signup" : requestedMode === "master" ? "master" : "login");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const displayedError = error ?? searchParams.get("oauth_error") ?? "";

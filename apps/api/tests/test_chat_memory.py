@@ -73,3 +73,35 @@ async def test_more_than_three_turns_use_three_semantically_selected_turns(monke
         "답변 4",
         "현재 질문",
     ]
+
+
+@pytest.mark.asyncio
+async def test_consecutive_user_messages_are_kept_for_immediate_follow_up(monkeypatch) -> None:
+    messages, _ = conversation(2)
+    user_id = messages[-1].user_id
+    session_id = messages[-1].session_id
+    messages.append(message("user", "즉시 보낸 추가 질문", user_id, session_id, 6))
+
+    async def unexpected_search(*args, **kwargs):
+        raise AssertionError("vector search should not run")
+
+    monkeypatch.setattr(chat_memory, "search_similar_turn_ids", unexpected_search)
+    context = await chat_memory.semantic_context(messages)
+
+    assert [item.content for item in context] == [item.content for item in messages]
+
+
+@pytest.mark.asyncio
+async def test_latest_interrupted_turn_is_always_kept_for_continuation(monkeypatch) -> None:
+    messages, questions = conversation(5)
+    messages[-2].is_interrupted = True
+
+    async def selected_search(*args, **kwargs):
+        return [questions[0].id, questions[1].id, questions[2].id]
+
+    monkeypatch.setattr(chat_memory, "search_similar_turn_ids", selected_search)
+    context = await chat_memory.semantic_context(messages)
+
+    assert "질문 4" in [item.content for item in context]
+    assert "답변 4" in [item.content for item in context]
+    assert context[-1].content == "현재 질문"

@@ -5,21 +5,13 @@ import remarkGfm from "remark-gfm";
 
 type MarkdownMessageProps = {
   content: string;
-  isStreaming?: boolean;
 };
 
-export function MarkdownMessage({ content, isStreaming = false }: MarkdownMessageProps) {
-  if (!content) {
-    return (
-      <p className="markdown-placeholder">
-        답변을 준비하고 있습니다…
-        {isStreaming && <span className="streaming-cursor" aria-hidden="true" />}
-      </p>
-    );
-  }
+export function MarkdownMessage({ content }: MarkdownMessageProps) {
+  if (!content) return null;
 
   return (
-    <div className={`markdown-content ${isStreaming ? "streaming" : ""}`}>
+    <div className="markdown-content">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         skipHtml
@@ -31,7 +23,6 @@ export function MarkdownMessage({ content, isStreaming = false }: MarkdownMessag
       >
         {content}
       </ReactMarkdown>
-      {isStreaming && <span className="streaming-cursor" aria-hidden="true" />}
     </div>
   );
 }

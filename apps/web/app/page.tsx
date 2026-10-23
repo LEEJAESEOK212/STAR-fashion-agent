@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import {
+  ArrowUpRightIcon,
   LandingAuthActions,
   LandingAuthProvider,
   LandingFooterAuthAction,
@@ -88,7 +89,7 @@ export default function LandingPage() {
             <Image src="/star-mark-black.png" alt="" width={88} height={88} />
           </div>
           <h2>ASK<br />STAR</h2>
-          <Link className="star-entry-link" href="/chat">Enter chat <span className="star-entry-arrow"><Image src="/star-arrow-icon-v2.png" alt="" width={21} height={21} /></span></Link>
+          <Link className="star-entry-link" href="/chat">Enter chat <span className="star-entry-arrow"><ArrowUpRightIcon /></span></Link>
         </section>
 
         <footer className="star-footer">

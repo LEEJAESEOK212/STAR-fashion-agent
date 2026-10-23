@@ -82,12 +82,13 @@ export async function apiEventStream(
   onEvent: (message: ApiStreamEvent) => void,
   init?: RequestInit,
 ): Promise<void> {
+  const isFormData = init?.body instanceof FormData;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     credentials: "include",
     headers: {
       Accept: "text/event-stream",
-      "Content-Type": "application/json",
+      ...(!isFormData ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
   });

@@ -3,11 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CSSProperties, FormEvent, MouseEvent, PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ChatProfileMenu } from "@/app/components/chat-profile-menu";
 import { useTransientScrollbar } from "@/app/components/use-transient-scrollbar";
-import { apiCachedRequest, apiRequest, primeApiCache } from "@/lib/api";
+import { apiCachedRequest, apiRequest, invalidateApiCache, primeApiCache } from "@/lib/api";
 import type { AuthUser, ChatProject, ChatSessionDetail, ChatSessionSummary } from "@/lib/chat";
 
 type ChatSidebarProps = {
@@ -27,6 +27,22 @@ type MenuPosition = { top: number; left: number };
 const SIDEBAR_RAIL_WIDTH = 58;
 const SIDEBAR_PINNED_WIDTH = 338;
 const SIDEBAR_PIN_THRESHOLD = 96;
+const SIDEBAR_TREE_INDENT = 20;
+const CHAT_THEME_STORAGE_KEY = "star-chat-theme";
+
+type ChatTheme = "lavender" | "butter" | "steel" | "cobalt" | "glacier";
+
+const CHAT_THEMES: Array<{
+  id: ChatTheme;
+  label: string;
+  colors: [string, string, string];
+}> = [
+  { id: "lavender", label: "로즈우드 민트 테마", colors: ["#f3ebe8", "#7a4f60", "#8fd3b0"] },
+  { id: "butter", label: "버터 올리브 테마", colors: ["#eeeade", "#ded294", "#80745e"] },
+  { id: "steel", label: "아이보리 스틸 블루 테마", colors: ["#ecece7", "#a7a3a4", "#7db4d3"] },
+  { id: "cobalt", label: "코발트 코랄 테마", colors: ["#e9edf3", "#354967", "#ff746c"] },
+  { id: "glacier", label: "글레이셔 블루 테마", colors: ["#eaedef", "#68737a", "#7db4d3"] },
+];
 
 function sortSessions(sessions: ChatSessionSummary[]) {
   return [...sessions].sort((a, b) => {
@@ -46,16 +62,16 @@ function sortProjectsByUpdated(projects: ChatProject[]) {
   return [...projects].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
 }
 
-function FolderIcon() {
+export function FolderIcon() {
   return <svg className="thread-type-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M3.5 7.5h6l2-2h3.5l2 2h3.5v11h-17z" /></svg>;
 }
 
-function ChatIcon() {
+export function ChatIcon() {
   return <svg className="thread-type-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 5.5h14v10H9l-4 3z" /></svg>;
 }
 
 function PinIcon() {
-  return <svg className="thread-type-icon pin" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 4 6 1-1 5 3 3-5 1-3 6-.5-6L5 11l5-1z" /></svg>;
+  return <svg className="thread-type-icon pin" aria-hidden="true" viewBox="0 0 24 24"><path transform="translate(1)" d="m9 4 6 1-1 5 3 3-5 1-3 6-.5-6L5 11l5-1z" /></svg>;
 }
 
 function PlusIcon() {
@@ -72,10 +88,6 @@ function MoreIcon() {
 
 function ChevronIcon({ expanded }: { expanded: boolean }) {
   return <svg className="sidebar-action-icon sidebar-chevron-icon" aria-hidden="true" viewBox="0 0 20 20"><path d={expanded ? "m5.5 7.5 4.5 4.5 4.5-4.5" : "m7.5 5.5 4.5 4.5-4.5 4.5"} /></svg>;
-}
-
-function DotIcon() {
-  return <svg className="sidebar-action-icon sidebar-dot-icon" aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="1.35" /></svg>;
 }
 
 export function ChatSidebar({
@@ -122,13 +134,117 @@ export function ChatSidebar({
   const [projectsSectionExpanded, setProjectsSectionExpanded] = useState(true);
   const [recentSectionExpanded, setRecentSectionExpanded] = useState(true);
   const [moveProjectTrail, setMoveProjectTrail] = useState<string[]>([]);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingProjectMenuId, setEditingProjectMenuId] = useState<string | null>(null);
+  const [editingProjectName, setEditingProjectName] = useState("");
+  const [isRenamingProject, setIsRenamingProject] = useState(false);
+  const projectNameEditorRef = useRef<HTMLElement>(null);
+  const editingProjectNameRef = useRef("");
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
   const [isSidebarDragging, setIsSidebarDragging] = useState(false);
   const [sidebarHandleDragX, setSidebarHandleDragX] = useState(0);
   const [sidebarDockProgress, setSidebarDockProgress] = useState(0);
+  const [chatTheme, setChatTheme] = useState<ChatTheme>("steel");
+
+  useLayoutEffect(() => {
+    if (!editingProjectId || !editingProjectMenuId) return;
+    const editor = projectNameEditorRef.current;
+    if (!editor) return;
+    const focusAtEnd = () => {
+      editor.focus({ preventScroll: true });
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    };
+    focusAtEnd();
+    const frame = window.requestAnimationFrame(focusAtEnd);
+    return () => window.cancelAnimationFrame(frame);
+  }, [editingProjectId, editingProjectMenuId]);
 
   const projectById = new Map(projects.map((project) => [project.id, project]));
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem(CHAT_THEME_STORAGE_KEY);
+    const initialTheme = CHAT_THEMES.some((theme) => theme.id === savedTheme)
+      ? savedTheme as ChatTheme
+      : "steel";
+    setChatTheme(initialTheme);
+    document.documentElement.dataset.chatTheme = initialTheme;
+  }, []);
+
+  function selectChatTheme(theme: ChatTheme) {
+    setChatTheme(theme);
+    window.localStorage.setItem(CHAT_THEME_STORAGE_KEY, theme);
+    document.documentElement.dataset.chatTheme = theme;
+  }
+
+  useEffect(() => {
+    const activeSession = activeSessionId
+      ? sessions.find((session) => session.id === activeSessionId)
+      : undefined;
+    const targetProjectId = selectedProjectId ?? activeSession?.project_id ?? null;
+
+    if (!targetProjectId) {
+      if (activeSession && !activeSession.project_id) {
+        const recent = sortSessions(sessions.filter((session) => !session.project_id && !session.is_pinned));
+        if (recent.findIndex((session) => session.id === activeSession.id) >= 3) {
+          setRecentSectionExpanded(true);
+          setShowAllRecentSessions(true);
+        }
+      }
+      return;
+    }
+
+    const byId = new Map(projects.map((project) => [project.id, project]));
+    const path: ChatProject[] = [];
+    const visited = new Set<string>();
+    let project = byId.get(targetProjectId);
+    while (project && !visited.has(project.id)) {
+      path.push(project);
+      visited.add(project.id);
+      project = project.parent_id ? byId.get(project.parent_id) : undefined;
+    }
+    if (!path.length) return;
+
+    setProjectsSectionExpanded(true);
+    setExpandedProjects((current) => {
+      const next = new Set(current);
+      path.forEach((item) => next.add(item.id));
+      return next;
+    });
+    setManuallyCollapsedProjects((current) => {
+      const next = new Set(current);
+      path.forEach((item) => next.delete(item.id));
+      return next;
+    });
+
+    const parentsToReveal = new Set<string>();
+    let revealRootProjects = false;
+    path.forEach((item) => {
+      const isRootProject = !item.parent_id || !byId.has(item.parent_id);
+      const siblings = sortProjects(projects.filter((candidate) => isRootProject
+        ? !candidate.parent_id || !byId.has(candidate.parent_id)
+        : candidate.parent_id === item.parent_id));
+      if (siblings.findIndex((candidate) => candidate.id === item.id) < 3) return;
+      if (!isRootProject && item.parent_id) parentsToReveal.add(item.parent_id);
+      else revealRootProjects = true;
+    });
+    if (revealRootProjects) setShowAllRootProjects(true);
+    if (parentsToReveal.size) {
+      setShowAllProjectChildren((current) => new Set([...current, ...parentsToReveal]));
+    }
+
+    if (activeSession?.project_id === targetProjectId) {
+      const projectSessions = sortSessions(sessions.filter((session) => session.project_id === targetProjectId));
+      if (projectSessions.findIndex((session) => session.id === activeSession.id) >= 3) {
+        setShowAllProjectSessions((current) => new Set(current).add(targetProjectId));
+      }
+    }
+  }, [activeSessionId, projects, selectedProjectId, sessions]);
 
   useEffect(() => {
     function closeMenus(event: PointerEvent) {
@@ -289,9 +405,15 @@ export function ChatSidebar({
   }
 
   function toggleSidebarPinned() {
+    cancelSidebarPreviewClose();
     const next = !isSidebarPinned;
     saveSidebarPinned(next);
-    if (next) saveSidebarState(false);
+    if (next) {
+      saveSidebarState(false);
+      setSidebarDockProgress(1);
+      setSidebarPageWidth(SIDEBAR_PINNED_WIDTH);
+      window.requestAnimationFrame(() => setSidebarPageWidth(null));
+    }
   }
 
   function toggleShowAll(setter: typeof setShowAllProjectChildren, projectId: string) {
@@ -377,6 +499,61 @@ export function ChatSidebar({
       setOpenMenu(null);
     } catch (error) {
       onError(error instanceof Error ? error.message : "프로젝트를 고정하지 못했습니다.");
+    }
+  }
+
+  function startRenamingProject(project: ChatProject, menuId: string) {
+    editingProjectNameRef.current = project.name;
+    setEditingProjectId(project.id);
+    setEditingProjectMenuId(menuId);
+    setEditingProjectName(project.name);
+    setOpenMenu(null);
+  }
+
+  function cancelRenamingProject() {
+    editingProjectNameRef.current = "";
+    setEditingProjectId(null);
+    setEditingProjectMenuId(null);
+    setEditingProjectName("");
+  }
+
+  async function saveProjectName(project: ChatProject) {
+    const name = editingProjectNameRef.current.trim();
+    if (!name || isRenamingProject) return;
+    if (name === project.name) {
+      cancelRenamingProject();
+      return;
+    }
+    setIsRenamingProject(true);
+    try {
+      const updated = await apiRequest<ChatProject>(`/chat/projects/${project.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      onProjectsChange(sortProjects(projects.map((item) => item.id === updated.id ? updated : item)));
+      invalidateApiCache();
+      cancelRenamingProject();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "프로젝트 이름을 바꾸지 못했습니다.");
+    } finally {
+      setIsRenamingProject(false);
+    }
+  }
+
+  function handleProjectNameInput(event: FormEvent<HTMLElement>) {
+    const name = (event.currentTarget.textContent ?? "").replace(/[\r\n]/g, "").slice(0, 80);
+    if (event.currentTarget.textContent !== name) event.currentTarget.textContent = name;
+    editingProjectNameRef.current = name;
+  }
+
+  function handleProjectRenameKey(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.currentTarget.blur();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelRenamingProject();
     }
   }
 
@@ -530,6 +707,7 @@ export function ChatSidebar({
     return (
       <div className="sidebar-item-menu" role="menu" style={menuPosition}>
         <button type="button" role="menuitem" onClick={() => void toggleProjectPin(project)}>{project.is_pinned ? "고정 해제" : "고정"}</button>
+        <button type="button" role="menuitem" onClick={() => startRenamingProject(project, menuId)}>이름 변경</button>
         <button className="danger" type="button" role="menuitem" onClick={() => void deleteProject(project)}>프로젝트 삭제</button>
       </div>
     );
@@ -538,7 +716,7 @@ export function ChatSidebar({
   function sessionRow(session: ChatSessionSummary, depth = 0) {
     const menuId = `session-${session.id}`;
     return (
-      <div className={`conversation-row ${session.id === activeSessionId ? "active" : ""}`} key={session.id} style={{ paddingLeft: depth * 12 }}>
+      <div className={`conversation-row ${session.id === activeSessionId ? "active" : ""}`} key={session.id} style={{ paddingLeft: depth * SIDEBAR_TREE_INDENT }}>
         <button
           className="conversation-link"
           type="button"
@@ -546,7 +724,7 @@ export function ChatSidebar({
           onFocus={() => warmSession(session.id)}
           onClick={() => navigate(`/chat/${session.id}`)}
         >
-          {session.is_pinned ? <PinIcon /> : <ChatIcon />}
+          <ChatIcon />
           <span className="thread-title-fade">{session.title}</span>
         </button>
         <button className="conversation-more" type="button" aria-label={`${session.title} 대화 메뉴`} aria-expanded={openMenu === menuId} onClick={(event) => openMenuAt(menuId, event)}><MoreIcon /></button>
@@ -566,30 +744,48 @@ export function ChatSidebar({
     const hasContents = children.length > 0 || projectSessions.length > 0;
     return (
       <div className="project-group" key={project.id}>
-        <div className={`project-row ${selectedProjectId === project.id ? "active" : ""}`} style={{ paddingLeft: depth * 12 }}>
+        <div className={`project-row ${!activeSessionId && selectedProjectId === project.id ? "active" : ""}`} style={{ paddingLeft: depth * SIDEBAR_TREE_INDENT }}>
           <button className="project-expand" type="button" onClick={() => toggleProject(project.id)} aria-label={`${project.name} ${expanded ? "접기" : "펼치기"}`} aria-expanded={expanded}>
-            {hasContents ? <ChevronIcon expanded={expanded} /> : <DotIcon />}
+            {hasContents ? <ChevronIcon expanded={expanded} /> : null}
           </button>
-          <button className="project-open" type="button" onClick={() => navigate(`/chat?project=${project.id}`)}>
-            <FolderIcon />
-            <strong className="thread-title-fade">{project.name}</strong>
-          </button>
+          {editingProjectId === project.id && editingProjectMenuId === menuId ? (
+            <span className="project-open sidebar-project-editing">
+              <FolderIcon />
+              <strong
+                ref={projectNameEditorRef}
+                className="thread-title-fade sidebar-project-name-editor"
+                contentEditable={!isRenamingProject}
+                suppressContentEditableWarning
+                role="textbox"
+                aria-label="프로젝트 이름"
+                spellCheck={false}
+                onInput={handleProjectNameInput}
+                onKeyDown={handleProjectRenameKey}
+                onBlur={() => void saveProjectName(project)}
+              >{editingProjectName}</strong>
+            </span>
+          ) : (
+            <button className="project-open" type="button" onClick={() => navigate(`/chat?project=${project.id}`)}>
+              <FolderIcon />
+              <strong className="thread-title-fade">{project.name}</strong>
+            </button>
+          )}
           <button className="project-new-chat" type="button" aria-label={`${project.name}에 하위 프로젝트 추가`} onClick={() => startCreatingProject(project.id)}><PlusIcon /></button>
           <button className="conversation-more" type="button" aria-label={`${project.name} 프로젝트 메뉴`} aria-expanded={openMenu === menuId} onClick={(event) => openMenuAt(menuId, event)}><MoreIcon /></button>
           {projectMenu(project, menuId)}
         </div>
-        {creatingParentId === project.id && <div style={{ paddingLeft: (depth + 1) * 12 }}>{projectCreateForm(project.name)}</div>}
+        {creatingParentId === project.id && <div style={{ paddingLeft: (depth + 1) * SIDEBAR_TREE_INDENT }}>{projectCreateForm(project.name)}</div>}
         {expanded && (
           <div className="project-contents">
             {visibleChildren.map((child) => projectNode(child, depth + 1))}
             {children.length > 3 && (
-              <button className="project-more" type="button" style={{ paddingLeft: 8 + (depth + 1) * 12 }} onClick={() => toggleShowAll(setShowAllProjectChildren, project.id)}>
+              <button className="project-more" type="button" style={{ paddingLeft: 8 + (depth + 1) * SIDEBAR_TREE_INDENT }} onClick={() => toggleShowAll(setShowAllProjectChildren, project.id)}>
                 {showAllProjectChildren.has(project.id) ? "하위 프로젝트 접기" : `하위 프로젝트 더 보기 (${children.length - 3})`}
               </button>
             )}
-            {visibleSessions.map((session) => sessionRow(session, depth + 1))}
+            {visibleSessions.map((session) => sessionRow(session, depth + 2))}
             {projectSessions.length > 3 && (
-              <button className="project-more" type="button" style={{ paddingLeft: 8 + (depth + 1) * 12 }} onClick={() => toggleShowAll(setShowAllProjectSessions, project.id)}>
+              <button className="project-more" type="button" style={{ paddingLeft: 8 + (depth + 2) * SIDEBAR_TREE_INDENT }} onClick={() => toggleShowAll(setShowAllProjectSessions, project.id)}>
                 {showAllProjectSessions.has(project.id) ? "대화 접기" : `대화 더 보기 (${projectSessions.length - 3})`}
               </button>
             )}
@@ -637,6 +833,27 @@ export function ChatSidebar({
         >
           <Image src="/star-mark-black.png" alt="" width={28} height={28} draggable={false} priority />
         </button>
+        <ChatProfileMenu user={user} onLogout={onLogout} />
+        <div className="sidebar-theme-switcher" role="group" aria-label="색상 테마 선택">
+          {CHAT_THEMES.map((theme) => (
+            <button
+              className={`sidebar-theme-option ${chatTheme === theme.id ? "active" : ""}`}
+              type="button"
+              key={theme.id}
+              aria-label={theme.label}
+              aria-pressed={chatTheme === theme.id}
+              title={theme.label}
+              style={{
+                "--theme-color-a": theme.colors[0],
+                "--theme-color-b": theme.colors[1],
+                "--theme-color-c": theme.colors[2],
+              } as CSSProperties}
+              onClick={() => selectChatTheme(theme.id)}
+            >
+              <span aria-hidden="true" />
+            </button>
+          ))}
+        </div>
         <button className="mobile-sidebar-close" type="button" aria-label="대화 목록 닫기" onClick={() => setMobileOpen(false)}>×</button>
         <div className="sidebar-panel-content" onMouseEnter={cancelSidebarPreviewClose}>
           <div className="sidebar-panel-header">
@@ -646,6 +863,7 @@ export function ChatSidebar({
               type="button"
               aria-label={isSidebarPinned ? "사이드바 고정 해제" : "사이드바 고정"}
               aria-pressed={isSidebarPinned}
+              onPointerDown={cancelSidebarPreviewClose}
               onClick={toggleSidebarPinned}
             ><PinIcon /></button>
           </div>
@@ -660,10 +878,28 @@ export function ChatSidebar({
                   const menuId = `pinned-project-${project.id}`;
                   return (
                     <div className="pinned-thread-row" key={menuId}>
-                      <button className="pinned-thread-link" type="button" onClick={() => navigate(`/chat?project=${project.id}`)}>
-                        <span className="pinned-thread-icons"><PinIcon /><FolderIcon /></span>
-                        <span className="thread-title-fade">{project.name}</span>
-                      </button>
+                      {editingProjectId === project.id && editingProjectMenuId === menuId ? (
+                        <span className="pinned-thread-link sidebar-project-editing">
+                          <span className="pinned-thread-icons project-folder-icons"><FolderIcon /></span>
+                          <strong
+                            ref={projectNameEditorRef}
+                            className="thread-title-fade sidebar-project-name-editor"
+                            contentEditable={!isRenamingProject}
+                            suppressContentEditableWarning
+                            role="textbox"
+                            aria-label="프로젝트 이름"
+                            spellCheck={false}
+                            onInput={handleProjectNameInput}
+                            onKeyDown={handleProjectRenameKey}
+                            onBlur={() => void saveProjectName(project)}
+                          >{editingProjectName}</strong>
+                        </span>
+                      ) : (
+                        <button className="pinned-thread-link" type="button" onClick={() => navigate(`/chat?project=${project.id}`)}>
+                          <span className="pinned-thread-icons project-folder-icons"><FolderIcon /></span>
+                          <span className="thread-title-fade">{project.name}</span>
+                        </button>
+                      )}
                       <button className="conversation-more" type="button" aria-label={`${project.name} 프로젝트 메뉴`} aria-expanded={openMenu === menuId} onClick={(event) => openMenuAt(menuId, event)}><MoreIcon /></button>
                       {projectMenu(project, menuId)}
                     </div>
@@ -680,7 +916,7 @@ export function ChatSidebar({
                         onFocus={() => warmSession(session.id)}
                         onClick={() => navigate(`/chat/${session.id}`)}
                       >
-                        <span className="pinned-thread-icons"><PinIcon /><ChatIcon /></span>
+                        <span className="pinned-thread-icons"><ChatIcon /></span>
                         <span className="thread-title-fade">{session.title}</span>
                       </button>
                       <button className="conversation-more" type="button" aria-label={`${session.title} 대화 메뉴`} aria-expanded={openMenu === menuId} onClick={(event) => openMenuAt(menuId, event)}><MoreIcon /></button>
@@ -727,7 +963,6 @@ export function ChatSidebar({
           </div>
             <div className="sidebar-scrollbar" aria-hidden="true"><span /></div>
           </div>
-          <ChatProfileMenu user={user} onLogout={onLogout} />
         </div>
       </aside>
     </>

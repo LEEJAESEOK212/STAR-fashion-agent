@@ -4,6 +4,7 @@ export type ChatMessage = {
   session_id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  is_interrupted?: boolean;
   created_at: string;
   attachments: ChatAttachment[];
 };

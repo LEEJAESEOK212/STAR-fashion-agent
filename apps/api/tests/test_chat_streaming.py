@@ -113,3 +113,60 @@ async def test_image_payload_requests_careful_high_detail_analysis(monkeypatch) 
     assert isinstance(content, list)
     assert "추측해서 만들지 말고" in content[0]["text"]
     assert content[1]["image_url"]["detail"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_interrupted_answer_adds_continue_without_repeating_instruction() -> None:
+    user_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    interrupted = ChatMessage(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        session_id=session_id,
+        role="assistant",
+        content="1, 2, 3, 4, 5",
+        is_interrupted=True,
+        created_at=datetime.now(UTC),
+    )
+    interrupted.attachments = []
+    follow_up = ChatMessage(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        session_id=session_id,
+        role="user",
+        content="10까지 이어서 세어줘",
+        created_at=datetime.now(UTC),
+    )
+    follow_up.attachments = []
+
+    payload = await chat_completion.chat_payload_messages([interrupted, follow_up])
+
+    assert payload[1] == {"role": "assistant", "content": "1, 2, 3, 4, 5"}
+    assert payload[2]["role"] == "system"
+    assert "명확히 그 작업의 연장을 요구할 때만" in payload[2]["content"]
+    assert "'1부터'처럼 새 시작점을 명시하면" in payload[2]["content"]
+    assert payload[3] == {"role": "user", "content": "10까지 이어서 세어줘"}
+
+
+@pytest.mark.asyncio
+async def test_repeated_user_request_marks_previous_request_as_canceled() -> None:
+    user_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    first = ChatMessage(
+        id=uuid.uuid4(), user_id=user_id, session_id=session_id,
+        role="user", content="1부터 100까지 세어줘", created_at=datetime.now(UTC),
+    )
+    second = ChatMessage(
+        id=uuid.uuid4(), user_id=user_id, session_id=session_id,
+        role="user", content="1부터 100까지 세어줘", created_at=datetime.now(UTC),
+    )
+    first.attachments = []
+    second.attachments = []
+
+    payload = await chat_completion.chat_payload_messages([first, second])
+
+    assert payload[1] == {"role": "user", "content": "1부터 100까지 세어줘"}
+    assert payload[2]["role"] == "system"
+    assert "완전히 취소" in payload[2]["content"]
+    assert "시작점부터 새로" in payload[2]["content"]
+    assert payload[3] == {"role": "user", "content": "1부터 100까지 세어줘"}

@@ -21,11 +21,43 @@ type ChatComposerProps = {
   attachments: PendingAttachment[];
   setAttachments: Dispatch<SetStateAction<PendingAttachment[]>>;
   disabled: boolean;
+  inputDisabled?: boolean;
+  allowSubmitWhileDisabled?: boolean;
+  isGenerating?: boolean;
+  isPaused?: boolean;
   buttonLabel: string;
+  queuedPrompt?: string;
+  onSendQueuedNow?: () => void;
+  onCancelQueued?: () => void;
+  onTogglePause?: () => void;
+  onStopGeneration?: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onError: (message: string) => void;
   onVoiceOpen: () => void;
 };
+
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  0: { transcript: string };
+};
+
+type SpeechRecognitionEventLike = {
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
 const MAX_ATTACHMENTS = 5;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -53,22 +85,104 @@ function MicrophoneIcon() {
   );
 }
 
+function PlusIcon() {
+  return (
+    <svg className="composer-plus-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function VoiceChatIcon() {
+  return (
+    <svg className="voice-chat-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <rect x="3" y="9" width="2" height="6" rx="1" />
+      <rect x="7" y="6" width="2" height="12" rx="1" />
+      <rect x="11" y="4" width="2" height="16" rx="1" />
+      <rect x="15" y="7" width="2" height="10" rx="1" />
+      <rect x="19" y="10" width="2" height="4" rx="1" />
+    </svg>
+  );
+}
+
+function SendArrowUpIcon() {
+  return (
+    <svg className="composer-send-arrow" aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg className="composer-control-icon composer-stop-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <rect x="7" y="7" width="10" height="10" rx="1.5" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg className="composer-control-icon composer-pause-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <rect x="7" y="6" width="3.5" height="12" rx="1" />
+      <rect x="13.5" y="6" width="3.5" height="12" rx="1" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg className="composer-control-icon composer-play-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <path d="m9 7 9 5-9 5Z" />
+    </svg>
+  );
+}
+
+function EnterIcon() {
+  return (
+    <svg className="composer-control-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M19 5v7a4 4 0 0 1-4 4H6" />
+      <path d="m9 12-4 4 4 4" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg className="composer-control-icon" aria-hidden="true" viewBox="0 0 24 24">
+      <path d="m7 7 10 10M17 7 7 17" />
+    </svg>
+  );
+}
+
 export function ChatComposer({
   draft,
   setDraft,
   attachments,
   setAttachments,
   disabled,
+  inputDisabled = disabled,
+  allowSubmitWhileDisabled = false,
+  isGenerating = false,
+  isPaused = false,
   buttonLabel,
+  queuedPrompt,
+  onSendQueuedNow,
+  onCancelQueued,
+  onTogglePause,
+  onStopGeneration,
   onSubmit,
   onError,
   onVoiceOpen,
 }: ChatComposerProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isDictating, setIsDictating] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const dictationBaseRef = useRef("");
 
   function resizeTextarea() {
     const textarea = textareaRef.current;
@@ -98,6 +212,66 @@ export function ChatComposer({
     window.addEventListener("resize", resizeTextarea);
     return () => window.removeEventListener("resize", resizeTextarea);
   }, []);
+
+  useEffect(() => () => {
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+  }, []);
+
+  function toggleDictation() {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      return;
+    }
+
+    const speechWindow = window as typeof window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      onError("이 브라우저에서는 실시간 음성 전사를 지원하지 않습니다. Chrome 또는 Edge에서 이용해 주세요.");
+      return;
+    }
+
+    const recognition = new Recognition();
+    const base = draft && !/\s$/.test(draft) ? `${draft} ` : draft;
+    dictationBaseRef.current = base;
+    recognition.lang = "ko-KR";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript ?? "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trimStart();
+      setDraft(`${dictationBaseRef.current}${transcript}`);
+    };
+    recognition.onerror = (event) => {
+      if (event.error !== "aborted" && event.error !== "no-speech") {
+        onError(event.error === "not-allowed"
+          ? "마이크 권한이 필요합니다. 브라우저 설정에서 마이크 사용을 허용해 주세요."
+          : "실시간 음성 전사를 시작하지 못했습니다.");
+      }
+    };
+    recognition.onend = () => {
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      setIsDictating(false);
+      textareaRef.current?.focus();
+    };
+
+    try {
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsDictating(true);
+      onError("");
+    } catch {
+      recognitionRef.current = null;
+      setIsDictating(false);
+      onError("실시간 음성 전사를 시작하지 못했습니다.");
+    }
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     onSubmit(event);
@@ -169,44 +343,81 @@ export function ChatComposer({
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
+      if (queuedPrompt && !draft.trim() && !attachments.length && onSendQueuedNow) {
+        onSendQueuedNow();
+        return;
+      }
       event.currentTarget.form?.requestSubmit();
     }
   }
 
   return (
-    <form
-      className="composer composer-with-attachments"
-      data-expanded={isExpanded ? "true" : undefined}
-      onSubmit={handleSubmit}
-    >
-      {attachments.length > 0 && (
-        <div className="pending-attachments" aria-label="첨부할 파일">
-          {attachments.map((attachment) => (
-            <div className={`pending-attachment ${attachment.kind}`} key={attachment.localId}>
-              {attachment.previewUrl ? (
-                // A temporary object URL is required to preview a local file before upload.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={attachment.previewUrl} alt="" />
-              ) : (
-                <span className="attachment-file-icon"><PaperclipIcon /></span>
-              )}
-              {attachment.kind === "file" && (
-                <span title={attachment.file.name}>{attachment.file.name}</span>
-              )}
+    <>
+      {queuedPrompt && (
+        <aside className="queued-question" aria-live="polite">
+          <div className="queued-question-copy">
+            <span aria-hidden="true"><EnterIcon /></span>
+            <p>{queuedPrompt}</p>
+          </div>
+          <div className="queued-question-actions">
+            {onSendQueuedNow && (
               <button
+                className="queued-question-send-now"
                 type="button"
-                aria-label={`${attachment.file.name} 첨부 취소`}
-                onClick={() => removeAttachment(attachment.localId)}
-                disabled={disabled}
+                aria-label="지금 전송하기"
+                title="지금 전송하기 · Enter"
+                onClick={onSendQueuedNow}
               >
-                ×
+                <EnterIcon />
               </button>
-            </div>
-          ))}
-        </div>
+            )}
+            {onCancelQueued && (
+              <button
+                className="queued-question-cancel"
+                type="button"
+                aria-label="대기 중인 질문 취소"
+                title="대기 질문 취소"
+                onClick={onCancelQueued}
+              >
+                <CloseIcon />
+              </button>
+            )}
+          </div>
+        </aside>
       )}
+      <form
+        className="composer composer-with-attachments"
+        data-expanded={isExpanded ? "true" : undefined}
+        onSubmit={handleSubmit}
+      >
+        {attachments.length > 0 && (
+          <div className="pending-attachments" aria-label="첨부할 파일">
+            {attachments.map((attachment) => (
+              <div className={`pending-attachment ${attachment.kind}`} key={attachment.localId}>
+                {attachment.previewUrl ? (
+                  // A temporary object URL is required to preview a local file before upload.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={attachment.previewUrl} alt="" />
+                ) : (
+                  <span className="attachment-file-icon"><PaperclipIcon /></span>
+                )}
+                {attachment.kind === "file" && (
+                  <span title={attachment.file.name}>{attachment.file.name}</span>
+                )}
+                <button
+                  type="button"
+                  aria-label={`${attachment.file.name} 첨부 취소`}
+                  onClick={() => removeAttachment(attachment.localId)}
+                  disabled={disabled}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
-      <div className="composer-row">
+        <div className="composer-row">
         <div className="attachment-menu-wrap" ref={menuRef}>
           {menuOpen && (
             <div className="attachment-menu" role="menu">
@@ -224,7 +435,7 @@ export function ChatComposer({
             onClick={() => setMenuOpen((open) => !open)}
             disabled={disabled}
           >
-            +
+            <PlusIcon />
           </button>
           <input
             ref={fileInputRef}
@@ -244,26 +455,68 @@ export function ChatComposer({
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          disabled={disabled}
+          disabled={inputDisabled}
         />
-        <button
-          className="voice-toggle"
-          type="button"
-          aria-label="음성 대화 시작"
-          title="음성 대화 시작"
-          onClick={onVoiceOpen}
-          disabled={disabled}
-        >
-          <MicrophoneIcon />
-        </button>
-        <button
-          className="composer-submit"
-          type="submit"
-          disabled={disabled || (!draft.trim() && !attachments.length)}
-        >
-          {buttonLabel}
-        </button>
-      </div>
-    </form>
+        {!isGenerating && (
+          <button
+            className={`voice-toggle ${isDictating ? "recording" : ""}`}
+            type="button"
+            aria-label={isDictating ? "음성 전사 종료" : "음성으로 입력"}
+            title={isDictating ? "음성 전사 종료" : "음성으로 입력"}
+            onClick={toggleDictation}
+            disabled={disabled || inputDisabled}
+          >
+            <MicrophoneIcon />
+          </button>
+        )}
+        {isGenerating && (
+          <div className="composer-generation-controls" aria-label="답변 생성 제어">
+            <button
+              className="composer-pause-toggle"
+              type="button"
+              aria-label={isPaused ? "답변 생성 재생" : "답변 생성 일시정지"}
+              title={isPaused ? "계속 재생" : "일시정지"}
+              onClick={onTogglePause}
+              disabled={!onTogglePause}
+            >
+              {isPaused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button
+              className="composer-stop-toggle"
+              type="button"
+              aria-label="답변 생성 완전 정지"
+              title="완전 정지"
+              onClick={onStopGeneration}
+              disabled={!onStopGeneration}
+            >
+              <StopIcon />
+            </button>
+          </div>
+        )}
+        {!isGenerating && !draft.trim() && !attachments.length ? (
+          <button
+            className="voice-chat-toggle"
+            type="button"
+            aria-label="상호 음성 채팅 시작"
+            title="상호 음성 채팅 시작"
+            onClick={onVoiceOpen}
+            disabled={disabled}
+          >
+            <VoiceChatIcon />
+          </button>
+        ) : (
+          <button
+            className="composer-submit"
+            type="submit"
+            aria-label={buttonLabel}
+            title={buttonLabel}
+            disabled={(disabled && !allowSubmitWhileDisabled) || (!draft.trim() && !attachments.length)}
+          >
+            <SendArrowUpIcon />
+          </button>
+        )}
+        </div>
+      </form>
+    </>
   );
 }
