@@ -590,5 +590,6 @@ final result: passed
 - Focused evidence: `document.fonts.check('16px Paperlogy')`가 true였다. 일반 본문은 Paperlogy 16px/400, 굵은 글씨는 Paperlogy 16px/700으로 크기가 정확히 같았고, STAR 이름은 Paperlogy 14px/600으로 측정됐다.
 - Required fidelity surfaces: 사용자 질문·입력창·사이드바 서체는 변경하지 않았고 AI 답변과 이름만 변경했다. 색상, 간격, 이미지, 아이콘, 복사문구는 기존 상태를 보존했다.
 - Browser verification: 폰트 로드 실패, 경고, 콘솔 오류가 없었고 Next.js 운영 빌드와 TypeScript 검사가 통과했다.
+- Rollback: 실제 사용 화면 확인 후 사용자 요청으로 Paperlogy 적용을 철회했다. `@font-face`, 답변 전용 서체·강조 크기 덮어쓰기, 앱 내부 TTF 파일을 모두 제거하고 적용 직전의 Inter 계열 채팅 스타일로 복원했다.
 
 final result: passed
