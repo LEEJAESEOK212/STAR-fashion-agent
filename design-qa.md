@@ -161,6 +161,19 @@
 
 final result: passed
 
+## 2026-10-29 질문 미니맵 중앙 묶음 보정
+
+- Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-d34e9bb6-288b-427b-96f7-7d955e6ed15f.png` (61x768), 질문 선이 화면 전체 높이의 실제 메시지 위치에 따라 흩어진 잘못된 상태와 사용자의 중앙 묶음 수정 지시.
+- Implementation screenshot: 인앱 브라우저의 실제 컴포넌트 검증 화면, 1280x720 CSS 픽셀·device scale 1, 질문 6개 상태.
+- P1 finding: 질문 선 top 값을 전체 대화 높이의 질문 위치 비율로 계산해, 질문 수가 적어도 화면 상단부터 하단까지 과도하게 퍼졌다.
+- Fix: 선 위치와 문서 위치를 분리했다. 모든 선은 화면 세로 50%를 기준으로 중앙 정렬하며 기본 간격은 트랙 높이의 1.8%로 제한하고, 질문이 많을 때만 전체 묶음이 트랙의 56%를 넘지 않도록 간격을 자동 축소한다. 문서 위치 계산은 현재 질문 강조와 클릭 이동에만 유지했다. 사용자 후속 지시에 따라 기본선 두께를 2px, 현재·호버 강조선을 3px로 올렸다.
+- Full-view evidence: 614px 높이 트랙에서 6개 선의 top은 357.4, 368.4, 379.5, 390.5, 401.6, 412.6px로 측정돼 55.3px 높이의 더 촘촘한 한 묶음으로 정확히 중앙에 모였다.
+- Focused evidence: 기본선은 모두 2px, 현재 선은 3px로 측정됐다. 호버 시 선 폭 `7/12/20/28/20/12px` 산형과 320px 요약 카드를 유지했고 브라우저 경고·오류는 없었다.
+- Required fidelity surfaces: 글꼴·색·카드·문구는 이전 통과 상태를 그대로 보존했다. 변경 범위는 질문 선과 카드의 세로 좌표뿐이며 별도 이미지 자산은 없다.
+- Comparison history: 첫 구현은 실제 질문 위치를 그대로 시각화해 P1 분산 문제가 있었다. 중앙 묶음 계산으로 교체한 재검증에서 P0/P1/P2 문제가 남지 않았다.
+
+final result: passed
+
 ## 2026-10-29 답변 작업 시간 행 중앙 정렬
 
 - Source visuals: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-21ee1424-ec74-4fdf-bee0-f8369cacf068.png`, `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-c93ded10-0857-440d-875b-6af086af3ef6.png`, 작업 시간 행이 답변 폭에 종속되어 좌우 위치가 달라지고 본문에 붙은 상태.
@@ -549,5 +562,20 @@ final result: passed
 - Fix: 사용자가 중앙 집중 상태에서 한 번 위로 벗어났다가 최하단으로 돌아오거나 하단 복귀 제어를 누르면 중앙 여백을 제거하고 실제 하단 정렬로 전환한다. 로그인·비로그인 대화에 동일하게 적용했다.
 - Production verification: 운영 화면에서 위로 이동 시 하단 거리가 364px로 늘고 복귀 제어가 표시됐다. 최하단 복귀 뒤 `is-turn-focused` 클래스가 제거되고 하단 거리가 0px가 됐으며, 3초간 추가 생성 뒤에도 2px로 유지됐다.
 - TypeScript와 운영 Next.js 빌드가 모두 오류 없이 통과했다.
+
+final result: passed
+
+## 2026-10-29 질문 대화 미니맵
+
+- Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-becdbde8-d422-4f76-82f4-d0665f08c5ec.png` (431x659), ChatGPT의 왼쪽 질문 탐색 선·호버 산형 확대·요약 카드 상태.
+- Intended implementation state: 질문 5개 이상인 데스크톱 대화에서 왼쪽 미니맵이 표시되고, 현재 질문 선이 검게 강조된 상태. 호버 시 강조선과 인접선의 폭이 산형으로 바뀌며 질문/답변 요약 카드가 표시되고, 클릭 시 해당 질문으로 부드럽게 이동해야 한다.
+- Implementation: 실제 메시지 DOM 위치를 전체 대화 높이 비율로 환산해 선 위치를 배치했다. 현재 화면 초점과 가장 가까운 질문을 검게 표시하고, 호버 시 28/20/12/7px 폭으로 인접 선을 단계적으로 확대한다. 요약 카드와 클릭 이동, 생성 중 자동 하단 추적 중단을 포함했다.
+- Build evidence: 새 컴포넌트 단독 ESLint 검사와 Next.js 운영 빌드·TypeScript 검사가 통과했다.
+- Implementation screenshot: 인앱 브라우저의 실제 컴포넌트 검증 화면, 1280x720 CSS 픽셀·device scale 1. 질문 6개와 답변 6개를 넣은 동일 운영 코드를 localhost에서 렌더링했다.
+- Full-view comparison: 왼쪽 10px 여백에 6개 선이 실제 질문 위치 비율대로 배치됐다. 4번째 질문이 현재 화면 초점과 가장 가까울 때 해당 선만 2px 검정으로 표시되고, 나머지는 1px 저대비 선으로 유지됐다.
+- Focused comparison: 4번째 질문 제어에 초점을 두자 선 폭이 `7/12/20/28/20/12px`로 산형 확대되고, 320px 요약 카드에 질문 제목·`질문 4`·해당 답변 요약이 표시됐다. 클릭 전후 scrollTop이 330px에서 588px로 이동해 질문 탐색도 확인했다.
+- Required fidelity surfaces: 기존 앱 토큰과 글꼴을 재사용했고, 카드 여백·둥근 모서리·그림자·저대비 선과 검정 강조선을 소스와 동일한 계층으로 유지했다. 별도 래스터 이미지나 대체 아이콘은 사용하지 않았으며 문구는 실제 질문과 답변에서 생성된다.
+- Interaction and production verification: 운영 웹 이미지 재빌드와 TypeScript 검사가 통과했고 공개 `/chat`에서 새 CSS가 로드됐다. 질문 5개 미만의 비로그인 화면에서는 탐색기가 렌더링되지 않았다. 6개 질문 검증 화면에서 현재 위치 갱신, 호버 카드, 산형 확대, 클릭 이동을 확인했고 브라우저 경고·오류는 없었다.
+- Comparison history: 최초 검증은 운영 업로드 승인 전이라 blocked였다. 승인 후 배포하고 동일 컴포넌트를 6개 질문 상태로 렌더링해 모든 P0/P1/P2 검증 항목을 통과했다.
 
 final result: passed

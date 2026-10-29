@@ -8,6 +8,7 @@ import { Fragment, FormEvent, UIEvent, useCallback, useEffect, useLayoutEffect, 
 import { ChatComposer } from "@/app/components/chat-composer";
 import { ChatHomeLink } from "@/app/components/chat-home-link";
 import { ChatIcon, ChatSidebar } from "@/app/components/chat-sidebar";
+import { ConversationNavigator } from "@/app/components/conversation-navigator";
 import { GenerationStatus, type GenerationDisplayState } from "@/app/components/generation-status";
 import { MarkdownMessage } from "@/app/components/markdown-message";
 import { ThreadFollowControl } from "@/app/components/thread-follow-control";
@@ -562,7 +563,10 @@ export default function ChatDetailPage() {
           <div className={`chat-thread ${session?.messages.length ? "conversation-thread" : ""} ${session?.messages.length && isTurnFocused ? "is-turn-focused" : ""}`}>
             {session?.messages.map((message) => (
             <Fragment key={message.id}>
-            <div className={`message-row ${message.role} ${message.id === streamingMessageId ? "pending-message" : ""}`}>
+            <div
+              className={`message-row ${message.role} ${message.id === streamingMessageId ? "pending-message" : ""}`}
+              data-question-id={message.role === "user" ? message.id : undefined}
+            >
               {message.role === "assistant" && <Image src="/star-mark-black.png" alt="STAR" width={34} height={34} />}
               <div className="message-bubble">
                 {message.role === "assistant" && <strong className="star-wordmark star-agent-name">STAR</strong>}
@@ -618,6 +622,11 @@ export default function ChatDetailPage() {
             )}
           </div>
           </div>
+          <ConversationNavigator
+            messages={session?.messages ?? []}
+            viewportRef={threadViewportRef}
+            onNavigateStart={markThreadScrollIntent}
+          />
           <div className="thread-scrollbar" aria-hidden="true"><span /></div>
           <ThreadFollowControl
             visible={isAwayFromBottom}
