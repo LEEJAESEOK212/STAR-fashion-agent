@@ -161,6 +161,16 @@
 
 final result: passed
 
+## 2026-10-29 1번 모스·체스트넛·페이디드 퍼플 테마
+
+- Source truth: Carhartt의 Moss 계열 제품명과 빈티지 Russell의 페이디드 퍼플 인상을 기준으로, 사용자가 지정한 세 색을 기존 1번 테마 안에서 역할별로 분리했다.
+- Implementation: 저장 호환성을 위해 `lavender` ID는 유지하고 이름과 미리보기만 `#5f674b` 모스그린, `#7b4b3a` 체스트넛, `#8d7a95` 페이디드 퍼플로 교체했다. 전체 화면은 밝은 모스 배경, 체스트넛 본문·사이드바, 페이디드 퍼플 선택·호버 포인트와 대비용 파생색을 사용한다.
+- Scope control: 1번 테마 정의와 해당 CSS 토큰만 변경했다. 나머지 4개 테마, 테마 선택 저장값, 사이드바 및 토글 동작은 유지했다.
+- Browser verification: 공개 운영 `/chat`에서 1번 테마를 선택해 `data-chat-theme=lavender`, 선택 제어 `aria-pressed=true`, 배경 `rgb(223, 225, 212)`, 체스트넛 `#7b4b3a`, 포인트 `#8d7a95` 적용을 확인했고 브라우저 오류는 없었다.
+- Build evidence: Next.js 운영 빌드와 TypeScript 검사가 통과했고 공개 주소가 HTTP 200으로 응답했다.
+
+final result: passed
+
 ## 2026-10-29 질문 미니맵 중앙 묶음 보정
 
 - Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-d34e9bb6-288b-427b-96f7-7d955e6ed15f.png` (61x768), 질문 선이 화면 전체 높이의 실제 메시지 위치에 따라 흩어진 잘못된 상태와 사용자의 중앙 묶음 수정 지시.

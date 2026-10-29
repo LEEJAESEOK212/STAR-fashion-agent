@@ -4319,15 +4319,15 @@ body {
 }
 
 html[data-chat-theme="lavender"] .chat-page {
-  --star-chat-ivory: #f3ebe8;
-  --star-chat-paper: #fbf7f5;
-  --star-chat-chocolate: #40272f;
-  --star-chat-chocolate-deep: #28191f;
-  --star-chat-cocoa: #6a4854;
-  --star-chat-blue: #8fd3b0;
-  --star-chat-blue-soft: #d6efdf;
-  --star-chat-blue-ink: #3f7758;
-  --star-chat-line: #ddcbc8;
+  --star-chat-ivory: #dfe1d4;
+  --star-chat-paper: #efeee7;
+  --star-chat-chocolate: #58382f;
+  --star-chat-chocolate-deep: #342620;
+  --star-chat-cocoa: #7b4b3a;
+  --star-chat-blue: #8d7a95;
+  --star-chat-blue-soft: #d9d0dc;
+  --star-chat-blue-ink: #66556d;
+  --star-chat-line: #c5c2b4;
 }
 
 html[data-chat-theme="butter"] .chat-page {

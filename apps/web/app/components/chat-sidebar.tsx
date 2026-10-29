@@ -37,7 +37,7 @@ const CHAT_THEMES: Array<{
   label: string;
   colors: [string, string, string];
 }> = [
-  { id: "lavender", label: "로즈우드 민트 테마", colors: ["#f3ebe8", "#7a4f60", "#8fd3b0"] },
+  { id: "lavender", label: "모스 체스트넛 페이디드 퍼플 테마", colors: ["#5f674b", "#7b4b3a", "#8d7a95"] },
   { id: "butter", label: "버터 올리브 테마", colors: ["#eeeade", "#ded294", "#80745e"] },
   { id: "steel", label: "아이보리 스틸 블루 테마", colors: ["#ecece7", "#a7a3a4", "#7db4d3"] },
   { id: "cobalt", label: "코발트 코랄 테마", colors: ["#e9edf3", "#354967", "#ff746c"] },
