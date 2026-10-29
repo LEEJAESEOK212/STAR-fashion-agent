@@ -579,3 +579,16 @@ final result: passed
 - Comparison history: 최초 검증은 운영 업로드 승인 전이라 blocked였다. 승인 후 배포하고 동일 컴포넌트를 6개 질문 상태로 렌더링해 모든 P0/P1/P2 검증 항목을 통과했다.
 
 final result: passed
+
+## 2026-10-29 Paperlogy 채팅 답변 서체
+
+- Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-594b659e-d910-4412-8c74-9cf1d0af0697.png` (765x619), 일반 답변 16px에 비해 굵은 Markdown 글씨가 14px로 작게 표시된 상태. 서체 원본은 `C:/Users/이재석/Desktop/제조 유출 방지/Paperlogy-1.000/`의 Paperlogy 1.000 TTF 세트다.
+- Implementation screenshot: 인앱 브라우저에서 실제 `MarkdownMessage`를 사용한 1280x720 CSS 픽셀·device scale 1 검증 화면.
+- P1 finding: 전역 `.message-bubble strong` 규칙의 14px 고정값이 16px 답변 본문의 Markdown `strong`에도 적용돼, 굵게 표시할수록 2px 작아졌다.
+- Fix: Paperlogy Regular 400, SemiBold 600, Bold 700 파일을 자체 호스팅하고 AI 답변 본문과 STAR 이름에만 적용했다. 답변 내부 `strong`과 `b`는 `font-size`와 `line-height`를 부모에서 상속하고 실제 Bold 700 파일을 사용하도록 범위를 분리했다.
+- Full-view evidence: 제공된 화면과 같은 일반 문장·번호 목록·굵은 강조가 섞인 답변을 렌더링했으며, Paperlogy의 한글 획과 자폭이 일관되고 기존 채팅 폭 안에서 줄바꿈과 목록 정렬이 정상으로 유지됐다.
+- Focused evidence: `document.fonts.check('16px Paperlogy')`가 true였다. 일반 본문은 Paperlogy 16px/400, 굵은 글씨는 Paperlogy 16px/700으로 크기가 정확히 같았고, STAR 이름은 Paperlogy 14px/600으로 측정됐다.
+- Required fidelity surfaces: 사용자 질문·입력창·사이드바 서체는 변경하지 않았고 AI 답변과 이름만 변경했다. 색상, 간격, 이미지, 아이콘, 복사문구는 기존 상태를 보존했다.
+- Browser verification: 폰트 로드 실패, 경고, 콘솔 오류가 없었고 Next.js 운영 빌드와 TypeScript 검사가 통과했다.
+
+final result: passed
