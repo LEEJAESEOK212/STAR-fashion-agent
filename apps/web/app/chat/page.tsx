@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CSSProperties, FormEvent, KeyboardEvent, Suspense, UIEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { CSSProperties, Fragment, FormEvent, KeyboardEvent, Suspense, UIEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ChatComposer } from "@/app/components/chat-composer";
 import { ChatHomeLink } from "@/app/components/chat-home-link";
@@ -820,7 +820,8 @@ function NewChatContent() {
             ) : authState === "anonymous" && guestMessages.length > 0 ? (
               <section className="guest-chat-thread" aria-label="비로그인 임시 대화">
                 {guestMessages.map((message) => (
-                  <div className={`message-row ${message.role} ${message.id === guestStreamingMessageId ? "pending-message" : ""}`} key={message.id}>
+                  <Fragment key={message.id}>
+                  <div className={`message-row ${message.role} ${message.id === guestStreamingMessageId ? "pending-message" : ""}`}>
                     {message.role === "assistant" && <Image src="/star-mark-black.png" alt="STAR" width={34} height={34} />}
                     <div className="message-bubble">
                       {message.role === "assistant" && <strong className="star-wordmark star-agent-name">STAR</strong>}
@@ -838,20 +839,21 @@ function NewChatContent() {
                         </div>
                       )}
                       {message.role === "assistant" ? (
-                        <>
-                          {message.content && <MarkdownMessage content={message.content} />}
-                          <GenerationStatus
-                            state={message.id === guestStreamingMessageId ? guestGenerationState : "complete"}
-                            durationMs={message.id === guestStreamingMessageId
-                              ? guestGenerationDuration
-                              : message.generation_duration_ms ?? null}
-                          />
-                        </>
+                        message.content ? <MarkdownMessage content={message.content} /> : null
                       ) : (
                         <p>{message.content}</p>
                       )}
                     </div>
                   </div>
+                  {message.role === "assistant" && (
+                    <GenerationStatus
+                      state={message.id === guestStreamingMessageId ? guestGenerationState : "complete"}
+                      durationMs={message.id === guestStreamingMessageId
+                        ? guestGenerationDuration
+                        : message.generation_duration_ms ?? null}
+                    />
+                  )}
+                  </Fragment>
                 ))}
                 {error && <p className="chat-error" role="alert">{error}</p>}
               </section>

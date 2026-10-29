@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { FormEvent, UIEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, FormEvent, UIEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ChatComposer } from "@/app/components/chat-composer";
 import { ChatHomeLink } from "@/app/components/chat-home-link";
@@ -561,7 +561,8 @@ export default function ChatDetailPage() {
           >
           <div className={`chat-thread ${session?.messages.length ? "conversation-thread" : ""} ${session?.messages.length && isTurnFocused ? "is-turn-focused" : ""}`}>
             {session?.messages.map((message) => (
-            <div className={`message-row ${message.role} ${message.id === streamingMessageId ? "pending-message" : ""}`} key={message.id}>
+            <Fragment key={message.id}>
+            <div className={`message-row ${message.role} ${message.id === streamingMessageId ? "pending-message" : ""}`}>
               {message.role === "assistant" && <Image src="/star-mark-black.png" alt="STAR" width={34} height={34} />}
               <div className="message-bubble">
                 {message.role === "assistant" && <strong className="star-wordmark star-agent-name">STAR</strong>}
@@ -591,20 +592,21 @@ export default function ChatDetailPage() {
                   </div>
                 )}
                 {message.role === "assistant" ? (
-                  <>
-                    {message.content && <MarkdownMessage content={message.content} />}
-                    <GenerationStatus
-                      state={message.id === streamingMessageId ? generationState : "complete"}
-                      durationMs={message.id === streamingMessageId
-                        ? generationDuration
-                        : message.generation_duration_ms ?? null}
-                    />
-                  </>
+                  message.content ? <MarkdownMessage content={message.content} /> : null
                 ) : (
                   <p>{message.content}</p>
                 )}
               </div>
             </div>
+            {message.role === "assistant" && (
+              <GenerationStatus
+                state={message.id === streamingMessageId ? generationState : "complete"}
+                durationMs={message.id === streamingMessageId
+                  ? generationDuration
+                  : message.generation_duration_ms ?? null}
+              />
+            )}
+            </Fragment>
             ))}
             {error && (
               <div className="chat-generation-error" role="alert">

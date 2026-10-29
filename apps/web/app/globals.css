@@ -223,7 +223,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .composer-wrap > p { margin: 9px 0 0; color: #9c8f89; font-size: 10px; text-align: center; }
 .chat-error { margin-top: 18px !important; color: #8e382f !important; }
 .pending-message { opacity: 1; }
-.generation-status { min-height: 32px; margin: 2px 0 24px; display: flex; justify-content: center; align-items: flex-start; color: rgba(76, 85, 91, .56); font-size: 12px; font-weight: 500; line-height: 1.45; letter-spacing: -.01em; }
+.generation-status { width: 100%; min-height: 32px; margin: 6px 0 36px; display: flex; justify-content: center; align-items: flex-start; color: rgba(76, 85, 91, .56); font-size: 12px; font-weight: 500; line-height: 1.45; letter-spacing: -.01em; }
 .generation-status > span { min-width: 174px; padding: 0 9px 8px; display: inline-flex; justify-content: center; align-items: center; gap: 5px; border-bottom: 1px solid rgba(76, 85, 91, .13); }
 .generation-status i { font-style: normal; font-size: 16px; line-height: 12px; transform: translateY(-1px); }
 .chat-generation-error { margin: 18px 0 30px 46px; padding: 14px 16px; border: 1px solid #edc7bb; border-radius: 14px; color: #8e382f; background: #fff4f0; }

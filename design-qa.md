@@ -161,6 +161,16 @@
 
 final result: passed
 
+## 2026-10-29 답변 작업 시간 행 중앙 정렬
+
+- Source visuals: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-21ee1424-ec74-4fdf-bee0-f8369cacf068.png`, `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-c93ded10-0857-440d-875b-6af086af3ef6.png`, 작업 시간 행이 답변 폭에 종속되어 좌우 위치가 달라지고 본문에 붙은 상태.
+- P1 finding: 작업 시간 컴포넌트가 `message-bubble` 내부에 있어 버블의 가변 폭을 기준으로 중앙 정렬됐다.
+- Fix: 작업 시간 컴포넌트를 각 AI 답변 직후의 독립 전체 폭 행으로 이동하고 답변과 상태 사이의 세로 간격을 확대했다.
+- Production verification: 운영 화면에서 작업 시간 행과 대화 본문 중심 좌표가 모두 809px로 일치했다. 답변 행 하단과 작업 시간 행 상단 간격은 약 60px로 확인됐다.
+- TypeScript와 운영 Next.js 빌드가 오류 없이 통과했다.
+
+final result: passed
+
 ## 2026-10-29 수동 스크롤 후 최하단 자동 추적 복귀
 
 - Source visual: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-227f07a7-97ee-4da5-8af7-27f707a20e48.png` (922x1304), 생성 중 위로 탐색한 뒤 다시 하단으로 돌아와도 자동 추적이 재개되지 않는 상태.
