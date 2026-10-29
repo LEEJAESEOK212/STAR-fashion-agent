@@ -105,7 +105,7 @@ function VoiceChatIcon() {
   );
 }
 
-function SendArrowUpIcon() {
+export function SendArrowUpIcon() {
   return (
     <svg className="composer-send-arrow" aria-hidden="true" viewBox="0 0 24 24">
       <path d="M12 19V5M6 11l6-6 6 6" />

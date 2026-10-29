@@ -5,6 +5,7 @@ export type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   is_interrupted?: boolean;
+  generation_duration_ms?: number | null;
   created_at: string;
   attachments: ChatAttachment[];
 };

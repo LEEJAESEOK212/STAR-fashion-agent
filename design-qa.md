@@ -161,6 +161,16 @@
 
 final result: passed
 
+## 2026-10-29 수동 스크롤 후 최하단 자동 추적 복귀
+
+- Source visual: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-227f07a7-97ee-4da5-8af7-27f707a20e48.png` (922x1304), 생성 중 위로 탐색한 뒤 다시 하단으로 돌아와도 자동 추적이 재개되지 않는 상태.
+- P1 finding: 스크롤 이벤트에 새 wheel·touch 의도 표시가 없으면 최하단 도달 검사까지 건너뛰어, 관성 스크롤이나 스크롤바 드래그 복귀가 자동 추적을 다시 켜지 못했다.
+- Fix: 최하단 32px 이내 도달은 입력 의도와 관계없이 항상 감지해 자동 추적을 재활성화하고, 최하단 이탈만 명시적인 사용자 입력에서 처리했다. 프로그램 이동에는 커스텀 스크롤바가 나타나지 않도록 유지했다.
+- Production verification: 생성 중 위로 이동했을 때 하단 거리가 505px로 늘고 복귀 제어가 표시됐다. 최하단으로 돌아온 뒤 거리는 2px, 추가 생성 3.5초 뒤에도 6px로 유지됐으며 복귀 제어가 사라진 상태를 확인했다.
+- TypeScript와 운영 Next.js 빌드가 모두 오류 없이 통과했다.
+
+final result: passed
+
 ## Palette hover fog without selection ring
 
 - Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-78e8f019-f1c7-437b-9651-3fe148ab983d.png`, showing the vertical palette rail with one selected swatch using a circular ring and surrounding fog.
@@ -479,5 +489,55 @@ final result: passed
 - Second follow-up fix: replaced the hard circular clip with a feathered radial alpha mask, removed all hover scaling, and explicitly cleared base and hover shadows/borders from the filled attachment and voice buttons.
 - Production verification: the updated web image compiled successfully with TypeScript validation and was restarted on the public deployment. At `https://spark-9309.tail46d184.ts.net/chat`, the active Coral attachment control measured 42x42px and the voice control 46x46px; both computed to `border: 0`, `box-shadow: none`, and no outline in their resting/active states.
 - Palette verification: all five deployed palette buttons computed to zero border and zero base shadow, their swatches computed to zero border and zero shadow, and only the selected theme retained a single 1.5px concentric outer ring. Visual inspection confirmed the hard dark fringe was replaced by a smooth edge. No browser warnings or errors were reported.
+
+final result: passed
+
+## 2026-10-29 대기·완료와 생성 중 채팅 위치 분리
+
+- Source visual: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-e28ad114-ee30-446f-a2ad-a95aa40890f3.png` (936x1288), 완료된 대화 아래에 큰 빈 공간이 남은 상태.
+- Target behavior: 대기·완료 상태에서는 대화 묶음을 입력창 위 하단에 배치하고, 새 질문 전송과 답변 생성 중에만 기존 화면 높이 비례 중앙 여백을 적용한다.
+- Implementation: 로그인 세션과 비로그인 체험 대화의 컨테이너에 생성 상태 클래스를 연결했다. 완료 상태는 flex 하단 정렬, 생성 상태는 상단 흐름과 `clamp(220px, 32vh, 420px)` 하단 여백을 사용한다.
+- Production verification: `https://spark-9309.tail46d184.ts.net/chat`의 모바일 뷰에서 질문 전송 직후 사용자 질문과 생성 상태가 기존 중앙 여백 흐름에 표시되는 것을 확인했다. 생성 완료 후 같은 대화 묶음이 입력창 바로 위 하단으로 이동하는 것을 확인했다.
+- TypeScript와 운영 Next.js 빌드가 모두 오류 없이 통과했다.
+
+final result: passed
+
+## 2026-10-29 최신 턴 완료 후 중앙 위치 유지 보정
+
+- Source visual: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-ee9b59a9-8c3e-43cb-8dea-18b1ea82fc9a.png` (934x414), 답변 완료 순간 최신 턴이 입력창 바로 위 하단으로 내려간 상태.
+- P1 finding: 생성 상태 플래그가 해제되면서 중앙 여백도 함께 제거되어, 짧은 답변은 완료 직후 하단으로 이동했다.
+- Fix: 생성 여부와 최신 턴 집중 상태를 분리했다. 현재 화면에서 질문을 보낸 뒤에는 생성 완료 후에도 중앙 여백을 유지하고, 대화 재진입 또는 새로고침 시에만 기본 하단 정렬을 사용한다.
+- Production verification: 데스크톱 운영 화면에서 짧은 답변 완료 후 최신 답변 하단 좌표가 약 283px로 중앙 영역에 유지되는 것을 확인했다. 같은 탭을 새로고침한 뒤에는 최신 답변 하단 좌표가 약 556px로 입력창 위 하단에 배치되는 것을 확인했다.
+- TypeScript와 운영 Next.js 빌드가 모두 오류 없이 통과했다.
+
+final result: passed
+
+## 2026-10-29 생성 중 자동 추적 복구
+
+- Source visual: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-8ae655b8-3f68-4b12-ab80-3f06de34e18a.png` (925x1305), 답변이 생성 중 아래로 늘어나지만 화면이 따라가지 않고 완료 뒤 위치가 바뀌는 상태.
+- P1 finding: 전송 전에 남은 사용자 스크롤 의도 플래그가 첫 프로그램 스크롤 이벤트에서 소비되며 `followStreamingRef`를 false로 바꿀 수 있었다.
+- Fix: 질문 전송과 스트리밍 메시지 레이아웃 적용 직전에 이전 스크롤 의도 플래그를 초기화했다. 생성 시작 이후의 새 wheel·touch 입력만 자동 추적 중단 의도로 처리한다.
+- Production verification: 운영 데스크톱에서 답변이 5줄에서 18줄로 늘어날 때 scrollHeight가 672px에서 1091px로 증가했고 scrollTop도 128px에서 547px로 함께 증가했다. 생성 중인 마지막 줄이 계속 화면에 유지되는 것을 시각적으로 확인했다.
+- TypeScript와 운영 Next.js 빌드가 모두 오류 없이 통과했다.
+
+final result: passed
+
+## 2026-10-29 답변별 작업 시간과 중지 답변 보존
+
+- Source visual: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-df7d9551-2f6b-4e4d-830f-7fd5e313dc8a.png`, 마지막 답변 아래에만 `10초 동안 작업함`이 표시된 상태.
+- P1 finding: 작업 시간은 화면의 단일 현재 상태였고 메시지 데이터에 저장되지 않아 과거 답변·재접속·중지 답변에서 사라졌다. 완전 중지는 생성된 부분 본문도 삭제했다.
+- Fix: 작업 시간을 AI 메시지별 데이터로 저장하고 각 답변 내부에 기존 시각 형태로 렌더링했다. 완료·중지 답변을 모두 보존하며, 기존 DB 답변은 질문→답변 생성 시각 차이로 보정했다.
+- Production verification: 중지한 부분 답변 442자와 `10초 동안 작업함`이 새로고침 후 유지됐다. 다음 완료 답변에는 별도의 `1초 동안 작업함`이 표시돼 답변 두 개에 각각 상태 행이 존재하는 것을 확인했다. 기존 운영 AI 답변 87개에도 작업 시간이 채워졌다.
+- TypeScript, 운영 API 바이트코드 검사, Next.js 빌드, Alembic `20261029_0008` 적용과 API health 검사가 모두 통과했다.
+
+final result: passed
+
+## 2026-10-29 최하단 복귀 후 중앙 여백 해제
+
+- Source visual: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-ecacd9c5-dbf4-4b35-a2e1-0279a9e925a7.png` (982x1302), 최하단에 도달했지만 최신 답변 아래 중앙 집중 여백이 그대로 남아 있는 상태.
+- P1 finding: 자동 추적은 복귀했지만 `is-turn-focused`가 유지되어 물리적 스크롤 최하단과 사용자가 기대하는 입력창 위 답변 최하단이 달랐다.
+- Fix: 사용자가 중앙 집중 상태에서 한 번 위로 벗어났다가 최하단으로 돌아오거나 하단 복귀 제어를 누르면 중앙 여백을 제거하고 실제 하단 정렬로 전환한다. 로그인·비로그인 대화에 동일하게 적용했다.
+- Production verification: 운영 화면에서 위로 이동 시 하단 거리가 364px로 늘고 복귀 제어가 표시됐다. 최하단 복귀 뒤 `is-turn-focused` 클래스가 제거되고 하단 거리가 0px가 됐으며, 3초간 추가 생성 뒤에도 2px로 유지됐다.
+- TypeScript와 운영 Next.js 빌드가 모두 오류 없이 통과했다.
 
 final result: passed

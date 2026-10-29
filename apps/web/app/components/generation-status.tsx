@@ -18,7 +18,9 @@ export function GenerationStatus({ state, durationMs }: GenerationStatusProps) {
   let label = "";
   if (state === "thinking") label = "답변 생성 중...";
   if (state === "paused") label = "답변 일시 정지됨";
-  if (state === "stopped") label = "답변 중지됨";
+  if (state === "stopped") label = durationMs === null
+    ? "답변 중지됨"
+    : formatDuration(durationMs);
   if (state === "complete" && durationMs !== null) label = formatDuration(durationMs);
   if (!label) return null;
 
@@ -26,7 +28,7 @@ export function GenerationStatus({ state, durationMs }: GenerationStatusProps) {
     <div className="generation-status" role="status" aria-live="polite">
       <span>
         {label}
-        {state === "complete" && <i aria-hidden="true">›</i>}
+        {(state === "complete" || (state === "stopped" && durationMs !== null)) && <i aria-hidden="true">›</i>}
       </span>
     </div>
   );

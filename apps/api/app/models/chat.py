@@ -73,6 +73,7 @@ class ChatMessage(Base):
     is_interrupted: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    generation_duration_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped[ChatSession] = relationship(back_populates="messages")

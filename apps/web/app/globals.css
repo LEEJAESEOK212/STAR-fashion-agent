@@ -1920,6 +1920,8 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior-y: contain;
+  scroll-behavior: smooth;
+  overflow-anchor: none;
   scrollbar-width: none;
 }
 
@@ -1933,6 +1935,18 @@ body {
   overflow: visible;
 }
 
+.chat-thread.conversation-thread {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.chat-thread.conversation-thread.is-turn-focused::after {
+  content: "";
+  display: block;
+  flex: 0 0 clamp(220px, 32vh, 420px);
+}
+
 .thread-scrollbar {
   right: 12px;
   width: 4px;
@@ -1940,6 +1954,109 @@ body {
 
 .thread-scrollbar span {
   background: rgba(8,8,8,.34);
+  transition: height .12s ease-out, transform .12s ease-out;
+  will-change: height, transform;
+}
+
+.thread-follow-control {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 6;
+  width: 44px;
+  height: 32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--star-chat-blue-ink) 24%, transparent);
+  border-radius: 999px;
+  color: var(--star-chat-chocolate);
+  background: color-mix(in srgb, var(--star-chat-paper) 94%, transparent);
+  box-shadow:
+    0 7px 20px rgba(0,0,0,.13),
+    0 0 0 1px color-mix(in srgb, var(--star-chat-blue) 12%, transparent);
+  backdrop-filter: blur(12px);
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.thread-follow-control:hover,
+.thread-follow-control:focus-visible {
+  color: var(--star-chat-chocolate-deep);
+  background: var(--star-chat-blue);
+  border-color: transparent;
+  outline: 0;
+  box-shadow:
+    0 8px 22px rgba(0,0,0,.16),
+    0 0 14px color-mix(in srgb, var(--star-chat-blue) 28%, transparent);
+}
+
+.thread-follow-control.is-generating {
+  width: 44px;
+  height: 32px;
+}
+
+.thread-follow-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.thread-follow-dots i {
+  width: 5px;
+  height: 5px;
+  display: block;
+  border-radius: 50%;
+  background: currentColor;
+  animation: thread-follow-dot 1.05s ease-in-out infinite;
+}
+
+.thread-follow-dots i:nth-child(2) { animation-delay: .14s; }
+.thread-follow-dots i:nth-child(3) { animation-delay: .28s; }
+
+.thread-follow-arrow {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  transform: rotate(180deg);
+}
+
+.thread-follow-arrow .composer-send-arrow {
+  width: 24px;
+  height: 24px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.thread-follow-control.is-generating .thread-follow-hover-arrow {
+  display: none;
+}
+
+.thread-follow-control.is-generating:hover .thread-follow-dots,
+.thread-follow-control.is-generating:focus-visible .thread-follow-dots {
+  display: none;
+}
+
+.thread-follow-control.is-generating:hover .thread-follow-hover-arrow,
+.thread-follow-control.is-generating:focus-visible .thread-follow-hover-arrow {
+  display: grid;
+}
+
+@keyframes thread-follow-dot {
+  0%, 62%, 100% { opacity: .48; transform: translateY(0); }
+  31% { opacity: 1; transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-scroll-viewport { scroll-behavior: auto; }
+  .thread-scrollbar span { transition: none; }
+  .thread-follow-dots i { animation: none; opacity: 1; }
 }
 
 .chat-empty h1,

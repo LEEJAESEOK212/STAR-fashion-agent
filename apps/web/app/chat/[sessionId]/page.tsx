@@ -3,13 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, UIEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ChatComposer } from "@/app/components/chat-composer";
 import { ChatHomeLink } from "@/app/components/chat-home-link";
 import { ChatIcon, ChatSidebar } from "@/app/components/chat-sidebar";
 import { GenerationStatus, type GenerationDisplayState } from "@/app/components/generation-status";
 import { MarkdownMessage } from "@/app/components/markdown-message";
+import { ThreadFollowControl } from "@/app/components/thread-follow-control";
 import { useTransientScrollbar } from "@/app/components/use-transient-scrollbar";
 import { VoiceMode } from "@/app/components/voice-mode";
 import { apiCachedRequest, apiEventStream, apiRequest, invalidateApiCache, primeApiCache } from "@/lib/api";
@@ -50,6 +51,11 @@ export default function ChatDetailPage() {
   const generationPausedAtRef = useRef<number | null>(null);
   const generationPausedDurationRef = useRef(0);
   const voiceRequestedRef = useRef(false);
+  const threadViewportRef = useRef<HTMLDivElement>(null);
+  const threadScrollIntentRef = useRef(false);
+  const hasLeftFocusedTurnRef = useRef(false);
+  const followStreamingRef = useRef(true);
+  const scrollAnimationFrameRef = useRef<number | null>(null);
   const [session, setSession] = useState<ChatSessionDetail | null>(null);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [projects, setProjects] = useState<ChatProject[]>([]);
@@ -63,6 +69,8 @@ export default function ChatDetailPage() {
   const [generationDuration, setGenerationDuration] = useState<number | null>(null);
   const [queuedPrompt, setQueuedPrompt] = useState("");
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [isTurnFocused, setIsTurnFocused] = useState(false);
+  const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
   const [error, setError] = useState("");
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceReply, setVoiceReply] = useState<{ id: string; text: string } | null>(null);
@@ -72,6 +80,8 @@ export default function ChatDetailPage() {
     if (generationStartedFor.current === inputMessage.id) return null;
     generationStartedFor.current = inputMessage.id;
     setError("");
+    setIsTurnFocused(true);
+    hasLeftFocusedTurnRef.current = false;
     setIsGenerating(true);
     generationPausedRef.current = false;
     generationStartedAtRef.current = performance.now();
@@ -87,9 +97,13 @@ export default function ChatDetailPage() {
       session_id: inputMessage.session_id,
       role: "assistant",
       content: "",
+      generation_duration_ms: null,
       created_at: new Date().toISOString(),
       attachments: [],
     };
+    threadScrollIntentRef.current = false;
+    followStreamingRef.current = true;
+    setIsAwayFromBottom(false);
     setStreamingMessageId(placeholderId);
     setSession((current) => current ? {
       ...current,
@@ -156,7 +170,14 @@ export default function ChatDetailPage() {
               method: "POST",
               signal: abortController.signal,
               body: visibleContent.trim()
-                ? JSON.stringify({ resume_from: visibleContent.trimEnd() })
+                ? JSON.stringify({
+                    resume_from: visibleContent.trimEnd(),
+                    elapsed_ms: Math.max(0, Math.round(
+                      performance.now()
+                      - generationStartedAtRef.current
+                      - generationPausedDurationRef.current,
+                    )),
+                  })
                 : undefined,
             },
           );
@@ -171,7 +192,7 @@ export default function ChatDetailPage() {
               : message),
             updated_at: completedOutput.created_at,
           } : current);
-          setGenerationDuration(Math.max(
+          setGenerationDuration(completedOutput.generation_duration_ms ?? Math.max(
             0,
             performance.now() - generationStartedAtRef.current - generationPausedDurationRef.current,
           ));
@@ -209,14 +230,23 @@ export default function ChatDetailPage() {
           }
           generationStartedFor.current = null;
           const wasStopped = isAbortError(requestError) && generationStopReasonRef.current !== null;
+          const stoppedDuration = Math.max(
+            0,
+            Math.round(
+              performance.now()
+              - generationStartedAtRef.current
+              - generationPausedDurationRef.current,
+            ),
+          );
           if (isAbortError(requestError)) {
+            setGenerationDuration(stoppedDuration);
             setGenerationState(generationStopReasonRef.current === "stop" ? "stopped" : "idle");
           } else {
             setGenerationState("idle");
           }
           if (
             wasStopped
-            && generationStopReasonRef.current === "send-now"
+            && (generationStopReasonRef.current === "stop" || generationStopReasonRef.current === "send-now")
             && visibleContent.trim()
           ) {
             try {
@@ -224,7 +254,10 @@ export default function ChatDetailPage() {
                 `/chat/sessions/${sessionId}/messages/interrupted`,
                 {
                   method: "POST",
-                  body: JSON.stringify({ output: visibleContent.trim() }),
+                  body: JSON.stringify({
+                    output: visibleContent.trim(),
+                    generation_duration_ms: stoppedDuration,
+                  }),
                 },
               );
               completion.output = interrupted;
@@ -322,6 +355,55 @@ export default function ChatDetailPage() {
     if (session) primeApiCache(`/chat/sessions/${sessionId}`, session);
   }, [session, sessionId]);
 
+  useLayoutEffect(() => {
+    if (!streamingMessageId) return;
+    threadScrollIntentRef.current = false;
+    followStreamingRef.current = true;
+    const frame = window.requestAnimationFrame(() => {
+      const viewport = threadViewportRef.current;
+      if (!viewport) return;
+      viewport.scrollTo({
+        top: Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [streamingMessageId]);
+
+  useEffect(() => {
+    if (!streamingMessageId || isAwayFromBottom || !followStreamingRef.current) return;
+    if (scrollAnimationFrameRef.current !== null) return;
+    let cancelled = false;
+    const followBottom = () => {
+      scrollAnimationFrameRef.current = null;
+      if (cancelled || !followStreamingRef.current) return;
+      const viewport = threadViewportRef.current;
+      if (!viewport) return;
+      const target = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const distance = target - viewport.scrollTop;
+      if (Math.abs(distance) <= 0.5) {
+        viewport.scrollTo({ top: target, behavior: "instant" });
+      } else {
+        viewport.scrollTo({ top: viewport.scrollTop + distance * 0.2, behavior: "instant" });
+      }
+      scrollAnimationFrameRef.current = window.requestAnimationFrame(followBottom);
+    };
+    scrollAnimationFrameRef.current = window.requestAnimationFrame(followBottom);
+    return () => {
+      cancelled = true;
+      if (scrollAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+    };
+  }, [isAwayFromBottom, streamingMessageId]);
+
+  useEffect(() => () => {
+    if (scrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     if (!selectedImage) return;
     const previousOverflow = document.body.style.overflow;
@@ -393,6 +475,55 @@ export default function ChatDetailPage() {
     void sendMessage(draft, attachments);
   }
 
+  function handleVisibleThreadScroll(event: UIEvent<HTMLDivElement>) {
+    const hadUserIntent = threadScrollIntentRef.current;
+    threadScrollIntentRef.current = false;
+    const viewport = event.currentTarget;
+    const distanceFromBottom = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+
+    if (distanceFromBottom <= 32) {
+      followStreamingRef.current = true;
+      setIsAwayFromBottom(false);
+      if (hasLeftFocusedTurnRef.current) {
+        hasLeftFocusedTurnRef.current = false;
+        setIsTurnFocused(false);
+      }
+      if (hadUserIntent) handleThreadScroll(event);
+      return;
+    }
+
+    if (!hadUserIntent) return;
+    hasLeftFocusedTurnRef.current = true;
+    followStreamingRef.current = false;
+    setIsAwayFromBottom(true);
+    handleThreadScroll(event);
+  }
+
+  function markThreadScrollIntent() {
+    threadScrollIntentRef.current = true;
+    if (scrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+  }
+
+  function scrollToThreadBottom() {
+    const viewport = threadViewportRef.current;
+    if (!viewport) return;
+    if (scrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+    followStreamingRef.current = true;
+    hasLeftFocusedTurnRef.current = false;
+    setIsTurnFocused(false);
+    setIsAwayFromBottom(false);
+    viewport.scrollTo({
+      top: Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+      behavior: "smooth",
+    });
+  }
+
   async function handleLogout() {
     await apiRequest<void>("/auth/logout", { method: "POST" });
     invalidateApiCache();
@@ -421,9 +552,15 @@ export default function ChatDetailPage() {
           <ChatHomeLink />
         </header>
         <div className="chat-thread-shell">
-          <div className="chat-scroll-viewport" onScroll={handleThreadScroll}>
-          <div className="chat-thread">
-            {session?.messages.map((message) => message.id === streamingMessageId && !message.content ? null : (
+          <div
+            className="chat-scroll-viewport"
+            ref={threadViewportRef}
+            onScroll={handleVisibleThreadScroll}
+            onWheel={markThreadScrollIntent}
+            onTouchMove={markThreadScrollIntent}
+          >
+          <div className={`chat-thread ${session?.messages.length ? "conversation-thread" : ""} ${session?.messages.length && isTurnFocused ? "is-turn-focused" : ""}`}>
+            {session?.messages.map((message) => (
             <div className={`message-row ${message.role} ${message.id === streamingMessageId ? "pending-message" : ""}`} key={message.id}>
               {message.role === "assistant" && <Image src="/star-mark-black.png" alt="STAR" width={34} height={34} />}
               <div className="message-bubble">
@@ -454,14 +591,21 @@ export default function ChatDetailPage() {
                   </div>
                 )}
                 {message.role === "assistant" ? (
-                  <MarkdownMessage content={message.content} />
+                  <>
+                    {message.content && <MarkdownMessage content={message.content} />}
+                    <GenerationStatus
+                      state={message.id === streamingMessageId ? generationState : "complete"}
+                      durationMs={message.id === streamingMessageId
+                        ? generationDuration
+                        : message.generation_duration_ms ?? null}
+                    />
+                  </>
                 ) : (
                   <p>{message.content}</p>
                 )}
               </div>
             </div>
             ))}
-            <GenerationStatus state={generationState} durationMs={generationDuration} />
             {error && (
               <div className="chat-generation-error" role="alert">
                 <p>{error}</p>
@@ -473,6 +617,11 @@ export default function ChatDetailPage() {
           </div>
           </div>
           <div className="thread-scrollbar" aria-hidden="true"><span /></div>
+          <ThreadFollowControl
+            visible={isAwayFromBottom}
+            generating={Boolean(streamingMessageId)}
+            onClick={scrollToThreadBottom}
+          />
         </div>
         <div className="composer-wrap">
           <ChatComposer

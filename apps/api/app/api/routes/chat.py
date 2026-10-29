@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
@@ -193,6 +194,7 @@ def message_response(
         role=message.role,
         content=message.content,
         is_interrupted=message.is_interrupted,
+        generation_duration_ms=message.generation_duration_ms,
         created_at=message.created_at,
         attachments=attachments if attachments is not None else message.attachments,
     )
@@ -803,6 +805,7 @@ async def save_interrupted_output(
         role="assistant",
         content=content,
         is_interrupted=True,
+        generation_duration_ms=payload.generation_duration_ms,
     )
     session.updated_at = datetime.now(UTC)
     db.add(output)
@@ -828,6 +831,7 @@ async def generate_response(
         )
 
     context = await generation_context(messages)
+    generation_started = perf_counter()
     try:
         completion = await create_chat_completion(context)
     except ChatAPINotConfiguredError as error:
@@ -843,6 +847,7 @@ async def generate_response(
         user_id=current_user.id,
         role=completion.role,
         content=completion.content,
+        generation_duration_ms=max(0, round((perf_counter() - generation_started) * 1000)),
     )
     if len(messages) == 1:
         try:
@@ -883,6 +888,7 @@ async def stream_response(
     context = await generation_context(messages)
     input_message = messages[-1]
     resume_prefix = payload.resume_from.strip() if payload and payload.resume_from else ""
+    elapsed_ms = payload.elapsed_ms if payload else 0
     if resume_prefix:
         interrupted = ChatMessage(
             session_id=session.id,
@@ -903,6 +909,7 @@ async def stream_response(
 
     async def events() -> AsyncIterator[str]:
         chunks: list[str] = []
+        segment_started = perf_counter()
         yield stream_event(
             "start",
             {"session_id": str(session.id), "input_message_id": str(input_message.id)},
@@ -924,6 +931,9 @@ async def stream_response(
                 user_id=current_user.id,
                 role="assistant",
                 content=content,
+                generation_duration_ms=elapsed_ms + max(
+                    0, round((perf_counter() - segment_started) * 1000)
+                ),
             )
             if len(messages) == 1:
                 try:

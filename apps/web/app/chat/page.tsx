@@ -3,13 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CSSProperties, FormEvent, KeyboardEvent, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, Suspense, UIEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ChatComposer } from "@/app/components/chat-composer";
 import { ChatHomeLink } from "@/app/components/chat-home-link";
 import { ChatIcon, ChatSidebar, FolderIcon } from "@/app/components/chat-sidebar";
 import { GenerationStatus, type GenerationDisplayState } from "@/app/components/generation-status";
 import { MarkdownMessage } from "@/app/components/markdown-message";
+import { ThreadFollowControl } from "@/app/components/thread-follow-control";
 import { useTransientScrollbar } from "@/app/components/use-transient-scrollbar";
 import { VoiceMode } from "@/app/components/voice-mode";
 import { apiCachedRequest, apiEventStream, apiRequest, invalidateApiCache, primeApiCache } from "@/lib/api";
@@ -48,7 +49,7 @@ function guestStoredMessages(): ChatMessage[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((message): message is ChatMessage => Boolean(
+    const messages = parsed.filter((message): message is ChatMessage => Boolean(
       message
       && typeof message === "object"
       && "id" in message
@@ -58,6 +59,17 @@ function guestStoredMessages(): ChatMessage[] {
       && (message.role === "user" || message.role === "assistant")
       && typeof message.content === "string",
     )).map((message) => ({ ...message, attachments: [] }));
+    return messages.map((message, index) => {
+      if (message.role !== "assistant" || message.generation_duration_ms != null) return message;
+      const previous = messages[index - 1];
+      const estimated = previous?.role === "user"
+        ? Date.parse(message.created_at) - Date.parse(previous.created_at)
+        : Number.NaN;
+      return {
+        ...message,
+        generation_duration_ms: Number.isFinite(estimated) ? Math.max(1000, estimated) : 1000,
+      };
+    });
   } catch {
     return [];
   }
@@ -116,6 +128,11 @@ function NewChatContent() {
   const guestGenerationStartedAtRef = useRef(0);
   const guestPausedAtRef = useRef<number | null>(null);
   const guestPausedDurationRef = useRef(0);
+  const threadViewportRef = useRef<HTMLDivElement>(null);
+  const threadScrollIntentRef = useRef(false);
+  const hasLeftFocusedTurnRef = useRef(false);
+  const followStreamingRef = useRef(true);
+  const scrollAnimationFrameRef = useRef<number | null>(null);
   const [draft, setDraft] = useState(incomingPrompt);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authState, setAuthState] = useState<ChatAuthState>("checking");
@@ -123,6 +140,8 @@ function NewChatContent() {
   const [projects, setProjects] = useState<ChatProject[]>([]);
   const [guestMessages, setGuestMessages] = useState<ChatMessage[]>([]);
   const [guestStreamingMessageId, setGuestStreamingMessageId] = useState<string | null>(null);
+  const [isTurnFocused, setIsTurnFocused] = useState(false);
+  const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGuestPaused, setIsGuestPaused] = useState(false);
@@ -207,6 +226,8 @@ function NewChatContent() {
     }
 
     setError("");
+    setIsTurnFocused(true);
+    hasLeftFocusedTurnRef.current = false;
     setIsSubmitting(true);
     guestPausedRef.current = false;
     guestGenerationStartedAtRef.current = performance.now();
@@ -244,11 +265,15 @@ function NewChatContent() {
       session_id: "guest-session",
       role: "assistant",
       content: "",
+      generation_duration_ms: null,
       created_at: now,
       attachments: [],
     };
     const priorMessages = guestMessages.filter((message) => message.id !== guestStreamingMessageId);
     const requestMessages = [...priorMessages, inputMessage];
+    threadScrollIntentRef.current = false;
+    followStreamingRef.current = true;
+    setIsAwayFromBottom(false);
     setGuestStreamingMessageId(placeholderId);
     setGuestMessages([...requestMessages, placeholder]);
 
@@ -307,18 +332,27 @@ function NewChatContent() {
           if (guestStopReasonRef.current) throw new DOMException("Aborted", "AbortError");
           const completedOutput = completion.output as ChatMessage | null;
           if (!completedOutput) throw new Error("답변 스트림이 완료되기 전에 종료됐습니다.");
-          generatedOutput = completedOutput;
+          const completedDuration = Math.max(
+            0,
+            Math.round(
+              performance.now()
+              - guestGenerationStartedAtRef.current
+              - guestPausedDurationRef.current,
+            ),
+          );
+          const timedOutput = {
+            ...completedOutput,
+            generation_duration_ms: completedOutput.generation_duration_ms ?? completedDuration,
+          };
+          generatedOutput = timedOutput;
           setGuestMessages((current) => {
             const completed = current.map((message) => message.id === placeholderId
-              ? completedOutput
+              ? timedOutput
               : message);
             persistGuestMessages(completed);
             return completed;
           });
-          setGuestGenerationDuration(Math.max(
-            0,
-            performance.now() - guestGenerationStartedAtRef.current - guestPausedDurationRef.current,
-          ));
+          setGuestGenerationDuration(timedOutput.generation_duration_ms);
           setGuestGenerationState("complete");
           break;
         } catch (requestError) {
@@ -349,15 +383,27 @@ function NewChatContent() {
             guestStopReasonRef.current = action;
           }
           if (isAbortError(requestError)) {
+            const stoppedDuration = Math.max(
+              0,
+              Math.round(
+                performance.now()
+                - guestGenerationStartedAtRef.current
+                - guestPausedDurationRef.current,
+              ),
+            );
+            setGuestGenerationDuration(stoppedDuration);
             setGuestGenerationState(guestStopReasonRef.current === "stop" ? "stopped" : "idle");
-            const interrupted = visibleContent.trim() && guestStopReasonRef.current === "send-now"
+            const interrupted = visibleContent.trim()
+              && (guestStopReasonRef.current === "stop" || guestStopReasonRef.current === "send-now")
               ? {
                   ...placeholder,
                   id: `guest-interrupted-${crypto.randomUUID()}`,
                   content: visibleContent.trim(),
                   is_interrupted: true,
+                  generation_duration_ms: stoppedDuration,
                 }
               : null;
+            generatedOutput = interrupted;
             setGuestMessages((current) => {
               const retained = current.flatMap((message) => message.id === placeholderId
                 ? interrupted ? [interrupted] : []
@@ -452,6 +498,55 @@ function NewChatContent() {
 
   useEffect(() => () => guestAbortRef.current?.abort(), []);
 
+  useLayoutEffect(() => {
+    if (!guestStreamingMessageId) return;
+    threadScrollIntentRef.current = false;
+    followStreamingRef.current = true;
+    const frame = window.requestAnimationFrame(() => {
+      const viewport = threadViewportRef.current;
+      if (!viewport) return;
+      viewport.scrollTo({
+        top: Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [guestStreamingMessageId]);
+
+  useEffect(() => {
+    if (!guestStreamingMessageId || isAwayFromBottom || !followStreamingRef.current) return;
+    if (scrollAnimationFrameRef.current !== null) return;
+    let cancelled = false;
+    const followBottom = () => {
+      scrollAnimationFrameRef.current = null;
+      if (cancelled || !followStreamingRef.current) return;
+      const viewport = threadViewportRef.current;
+      if (!viewport) return;
+      const target = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const distance = target - viewport.scrollTop;
+      if (Math.abs(distance) <= 0.5) {
+        viewport.scrollTo({ top: target, behavior: "instant" });
+      } else {
+        viewport.scrollTo({ top: viewport.scrollTop + distance * 0.2, behavior: "instant" });
+      }
+      scrollAnimationFrameRef.current = window.requestAnimationFrame(followBottom);
+    };
+    scrollAnimationFrameRef.current = window.requestAnimationFrame(followBottom);
+    return () => {
+      cancelled = true;
+      if (scrollAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+    };
+  }, [guestStreamingMessageId, isAwayFromBottom]);
+
+  useEffect(() => () => {
+    if (scrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     if (incomingPrompt && authState !== "checking" && !autoStarted.current) {
       autoStarted.current = true;
@@ -467,6 +562,55 @@ function NewChatContent() {
     await apiRequest<void>("/auth/logout", { method: "POST" });
     invalidateApiCache();
     router.replace("/signin");
+  }
+
+  function handleVisibleThreadScroll(event: UIEvent<HTMLDivElement>) {
+    const hadUserIntent = threadScrollIntentRef.current;
+    threadScrollIntentRef.current = false;
+    const viewport = event.currentTarget;
+    const distanceFromBottom = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+
+    if (distanceFromBottom <= 32) {
+      followStreamingRef.current = true;
+      setIsAwayFromBottom(false);
+      if (hasLeftFocusedTurnRef.current) {
+        hasLeftFocusedTurnRef.current = false;
+        setIsTurnFocused(false);
+      }
+      if (hadUserIntent) handleThreadScroll(event);
+      return;
+    }
+
+    if (!hadUserIntent) return;
+    hasLeftFocusedTurnRef.current = true;
+    followStreamingRef.current = false;
+    setIsAwayFromBottom(true);
+    handleThreadScroll(event);
+  }
+
+  function markThreadScrollIntent() {
+    threadScrollIntentRef.current = true;
+    if (scrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+  }
+
+  function scrollToThreadBottom() {
+    const viewport = threadViewportRef.current;
+    if (!viewport) return;
+    if (scrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+    followStreamingRef.current = true;
+    hasLeftFocusedTurnRef.current = false;
+    setIsTurnFocused(false);
+    setIsAwayFromBottom(false);
+    viewport.scrollTo({
+      top: Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+      behavior: "smooth",
+    });
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -578,8 +722,14 @@ function NewChatContent() {
           <ChatHomeLink />
         </header>
         <div className="chat-thread-shell">
-          <div className="chat-scroll-viewport" onScroll={handleThreadScroll}>
-          <div className={`chat-thread ${selectedProject ? "project-dashboard-thread" : ""}`}>
+            <div
+              className="chat-scroll-viewport"
+              ref={threadViewportRef}
+              onScroll={handleVisibleThreadScroll}
+              onWheel={markThreadScrollIntent}
+              onTouchMove={markThreadScrollIntent}
+            >
+          <div className={`chat-thread ${selectedProject ? "project-dashboard-thread" : ""} ${!selectedProject && guestMessages.length ? "conversation-thread" : ""} ${!selectedProject && guestMessages.length && isTurnFocused ? "is-turn-focused" : ""}`}>
             {selectedProject ? (
             <section className="project-dashboard">
               <div className="project-dashboard-heading">
@@ -669,7 +819,7 @@ function NewChatContent() {
             </section>
             ) : authState === "anonymous" && guestMessages.length > 0 ? (
               <section className="guest-chat-thread" aria-label="비로그인 임시 대화">
-                {guestMessages.map((message) => message.id === guestStreamingMessageId && !message.content ? null : (
+                {guestMessages.map((message) => (
                   <div className={`message-row ${message.role} ${message.id === guestStreamingMessageId ? "pending-message" : ""}`} key={message.id}>
                     {message.role === "assistant" && <Image src="/star-mark-black.png" alt="STAR" width={34} height={34} />}
                     <div className="message-bubble">
@@ -688,14 +838,21 @@ function NewChatContent() {
                         </div>
                       )}
                       {message.role === "assistant" ? (
-                        <MarkdownMessage content={message.content} />
+                        <>
+                          {message.content && <MarkdownMessage content={message.content} />}
+                          <GenerationStatus
+                            state={message.id === guestStreamingMessageId ? guestGenerationState : "complete"}
+                            durationMs={message.id === guestStreamingMessageId
+                              ? guestGenerationDuration
+                              : message.generation_duration_ms ?? null}
+                          />
+                        </>
                       ) : (
                         <p>{message.content}</p>
                       )}
                     </div>
                   </div>
                 ))}
-                <GenerationStatus state={guestGenerationState} durationMs={guestGenerationDuration} />
                 {error && <p className="chat-error" role="alert">{error}</p>}
               </section>
             ) : (
@@ -709,6 +866,11 @@ function NewChatContent() {
           </div>
           </div>
           <div className="thread-scrollbar" aria-hidden="true"><span /></div>
+          <ThreadFollowControl
+            visible={!selectedProject && isAwayFromBottom}
+            generating={Boolean(guestStreamingMessageId)}
+            onClick={scrollToThreadBottom}
+          />
         </div>
         <div className="composer-wrap">
           {guestLimitReached && (

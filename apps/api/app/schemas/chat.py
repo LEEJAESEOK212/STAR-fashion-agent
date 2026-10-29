@@ -13,10 +13,12 @@ class ChatInput(BaseModel):
 
 class ChatInterruptedOutput(BaseModel):
     output: str = Field(min_length=1, max_length=48_000)
+    generation_duration_ms: int = Field(ge=0, le=86_400_000)
 
 
 class ChatGenerationControl(BaseModel):
     resume_from: str | None = Field(default=None, min_length=1, max_length=48_000)
+    elapsed_ms: int = Field(default=0, ge=0, le=86_400_000)
 
 
 class ChatProjectCreate(BaseModel):
@@ -77,6 +79,7 @@ class ChatMessageResponse(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
     is_interrupted: bool = False
+    generation_duration_ms: int | None = None
     created_at: datetime
     attachments: list[ChatAttachmentResponse] = Field(default_factory=list)
 
