@@ -37,11 +37,11 @@ const CHAT_THEMES: Array<{
   label: string;
   colors: [string, string, string];
 }> = [
-  { id: "lavender", label: "모스 체스트넛 페이디드 퍼플 테마", colors: ["#dfe1d4", "#b77a62", "#b6a3be"] },
-  { id: "butter", label: "버터 올리브 테마", colors: ["#eeeade", "#ded294", "#80745e"] },
-  { id: "steel", label: "아이보리 스틸 블루 테마", colors: ["#ecece7", "#a7a3a4", "#7db4d3"] },
+  { id: "lavender", label: "모스 체스트넛 페이디드 퍼플 테마", colors: ["#dfe1d4", "#7b4b3a", "#8d7a95"] },
+  { id: "butter", label: "버터 올리브 테마", colors: ["#eeeade", "#514b3c", "#ded294"] },
+  { id: "steel", label: "아이보리 스틸 블루 테마", colors: ["#ecece7", "#47423f", "#9eacb6"] },
   { id: "cobalt", label: "코발트 코랄 테마", colors: ["#e9edf3", "#354967", "#ff746c"] },
-  { id: "glacier", label: "글레이셔 블루 테마", colors: ["#eaedef", "#68737a", "#7db4d3"] },
+  { id: "glacier", label: "글레이셔 블루 테마", colors: ["#eaedef", "#46535b", "#7db4d3"] },
 ];
 
 function sortSessions(sessions: ChatSessionSummary[]) {

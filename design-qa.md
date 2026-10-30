@@ -161,6 +161,16 @@
 
 final result: passed
 
+## 2026-10-30 전체 색상 토글과 실제 테마 동기화
+
+- Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-9661d52c-9ab5-4535-b2db-f861caed3728.png`, 토글의 조합만으로 실제 선택 후 화면 색감을 알아보기 어려운 상태.
+- Fix: 다섯 토글의 세 조각을 각 테마의 실제 배경 `--star-chat-ivory`, 주요 색 `--star-chat-cocoa`, 포인트 `--star-chat-blue`와 같은 값으로 통일했다. 별도 밝기·채도 보정색을 제거했다.
+- Production verification: 공개 운영 `/chat`에서 다섯 토글을 각각 선택해 미리보기 15개 값과 활성 테마 토큰 15개 값을 자동 비교했고 모두 정확히 일치했다. 1번은 `#dfe1d4/#7b4b3a/#8d7a95`로 모스 배경·체스트넛 주요색·페이디드 퍼플 포인트를 그대로 표시한다.
+- Scope control: 실제 테마 CSS와 선택·저장 로직은 변경하지 않고 토글 미리보기 데이터만 수정했다.
+- Build evidence: 로컬 Next.js 운영 빌드·TypeScript 검사와 운영 Docker 빌드가 통과했고 공개 주소가 HTTP 200으로 응답했다. 브라우저 오류는 없었다.
+
+final result: passed
+
 ## 2026-10-30 1번 색상 토글 밝기 정렬
 
 - Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-6ea5bcaf-b19d-4653-90bb-988b027da1d1.png`, 1번 원형 토글의 세 조각이 나머지 토글보다 전체적으로 어둡게 보이는 상태.
