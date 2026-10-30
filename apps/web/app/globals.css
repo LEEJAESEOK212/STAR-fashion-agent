@@ -4283,24 +4283,18 @@ body {
   transition: border-color .16s ease, transform .16s ease;
 }
 
-.chat-page .sidebar-theme-option > span {
+.chat-page .sidebar-theme-swatch {
   width: 20px;
   height: 20px;
   display: block;
-  border: 1px solid rgba(255,255,255,.24);
-  border-radius: 50%;
-  background: conic-gradient(
-    from 215deg,
-    var(--theme-color-a) 0 34%,
-    var(--theme-color-b) 34% 67%,
-    var(--theme-color-c) 67% 100%
-  );
-  box-shadow: 0 1px 3px rgba(0,0,0,.24);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   transition: filter .16s ease, transform .16s ease;
 }
 
-.chat-page .sidebar-theme-option:hover > span,
-.chat-page .sidebar-theme-option:focus-visible > span {
+.chat-page .sidebar-theme-option:hover > .sidebar-theme-swatch,
+.chat-page .sidebar-theme-option:focus-visible > .sidebar-theme-swatch {
   filter: brightness(1.16);
   transform: scale(1.08);
 }
@@ -4519,44 +4513,19 @@ html[data-chat-theme] .chat-page .sidebar-profile[aria-expanded="true"] {
   transition: none;
 }
 
-.chat-page .sidebar-theme-option > span {
+.chat-page .sidebar-theme-swatch {
   width: 24px;
   height: 24px;
-  position: relative;
-  box-sizing: border-box;
-  overflow: hidden;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  background-clip: border-box;
-  clip-path: none;
-  -webkit-mask-image: none;
-  mask-image: none;
-  box-shadow: none;
-  contain: paint;
-  isolation: isolate;
+  display: block;
+  overflow: visible;
+  shape-rendering: geometricPrecision;
   filter: none;
   transition: none;
 }
 
-.chat-page .sidebar-theme-option > span::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  background: conic-gradient(
-    from 215deg,
-    var(--theme-color-a) 0 34%,
-    var(--theme-color-b) 34% 67%,
-    var(--theme-color-c) 67% 100%
-  );
-  transform: translate(-50%, -50%) scale(.25);
-  transform-origin: center;
-  filter: blur(.3px);
-  backface-visibility: hidden;
+.chat-page .sidebar-theme-swatch-outline {
+  stroke: color-mix(in srgb, var(--star-chat-paper) 70%, rgba(0, 0, 0, .34));
+  vector-effect: non-scaling-stroke;
 }
 
 .chat-page .sidebar-theme-option.active {
@@ -4578,8 +4547,8 @@ html[data-chat-theme] .chat-page .sidebar-profile[aria-expanded="true"] {
     0 0 20px color-mix(in srgb, var(--theme-color-a) 24%, transparent);
 }
 
-.chat-page .sidebar-theme-option:hover > span,
-.chat-page .sidebar-theme-option:focus-visible > span {
+.chat-page .sidebar-theme-option:hover > .sidebar-theme-swatch,
+.chat-page .sidebar-theme-option:focus-visible > .sidebar-theme-swatch {
   filter: none;
   transform: none;
 }
@@ -4753,7 +4722,7 @@ html[data-chat-theme] .chat-page .sidebar-profile[aria-expanded="true"] {
     padding: 6px;
   }
 
-  .chat-page .chat-sidebar.mobile-open .sidebar-theme-option > span {
+  .chat-page .chat-sidebar.mobile-open .sidebar-theme-swatch {
     width: 21px;
     height: 21px;
   }

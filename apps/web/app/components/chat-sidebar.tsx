@@ -44,6 +44,17 @@ const CHAT_THEMES: Array<{
   { id: "glacier", label: "글레이셔 블루 테마", colors: ["#eaedef", "#46535b", "#7db4d3"] },
 ];
 
+function ThemeSwatch() {
+  return (
+    <svg className="sidebar-theme-swatch" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <path d="M16 16 L7.4 28.29 A15 15 0 0 1 10.24 2.15 Z" fill="var(--theme-color-a)" stroke="var(--theme-color-a)" strokeWidth=".55" strokeLinejoin="round" />
+      <path d="M16 16 L10.24 2.15 A15 15 0 0 1 30.91 17.62 Z" fill="var(--theme-color-b)" stroke="var(--theme-color-b)" strokeWidth=".55" strokeLinejoin="round" />
+      <path d="M16 16 L30.91 17.62 A15 15 0 0 1 7.4 28.29 Z" fill="var(--theme-color-c)" stroke="var(--theme-color-c)" strokeWidth=".55" strokeLinejoin="round" />
+      <circle className="sidebar-theme-swatch-outline" cx="16" cy="16" r="15" fill="none" strokeWidth="1" />
+    </svg>
+  );
+}
+
 function sortSessions(sessions: ChatSessionSummary[]) {
   return [...sessions].sort((a, b) => {
     if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
@@ -850,7 +861,7 @@ export function ChatSidebar({
               } as CSSProperties}
               onClick={() => selectChatTheme(theme.id)}
             >
-              <span aria-hidden="true" />
+              <ThemeSwatch />
             </button>
           ))}
         </div>

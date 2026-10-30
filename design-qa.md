@@ -161,6 +161,16 @@
 
 final result: passed
 
+## 2026-10-30 색상 토글 벡터 렌더링
+
+- Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-44d37445-bc66-4f86-b571-e8c22e128b78.png`, 작은 원 안쪽에 픽셀 접점이 보이고 외곽과 색 경계가 쭈글거리는 상태.
+- P1 finding: 96px 원뿔형 그라디언트를 `scale(.25)`로 24px까지 축소한 뒤 블러를 적용해 외곽과 중심 접점이 재표본화되면서 픽셀과 계단이 생겼다.
+- Fix: CSS 원뿔형 그라디언트와 가상 요소를 제거했다. 최종 24px SVG 안에 같은 색상의 얇은 스트로크로 서로 겹치는 벡터 부채꼴 3개를 렌더링하고, 별도 벡터 원으로 1px 외곽선을 그렸다.
+- Production verification: 공개 운영 `/chat`에서 SVG 5개, 각 SVG의 부채꼴 path 3개와 circle 1개, `shape-rendering: geometricPrecision`, 실제 크기 24x24px를 확인했다. 기존 span은 존재하지 않았고 확대 캡처에서 중심 빈 픽셀·외곽 계단 없이 원과 내부 경계가 연속적으로 표시됐다.
+- Build evidence: 로컬 Next.js 운영 빌드·TypeScript 검사와 운영 Docker 빌드가 통과했고 공개 주소가 HTTP 200으로 응답했다. 브라우저 오류는 없었다.
+
+final result: passed
+
 ## 2026-10-30 전체 색상 토글과 실제 테마 동기화
 
 - Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-9661d52c-9ab5-4535-b2db-f861caed3728.png`, 토글의 조합만으로 실제 선택 후 화면 색감을 알아보기 어려운 상태.
