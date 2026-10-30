@@ -161,6 +161,16 @@
 
 final result: passed
 
+## 2026-10-30 영구 레일 토글과 프로필 별 중심 정렬
+
+- Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-3024d5d5-a793-489c-9c70-b0728abd189a.png`, 패널 앞 66px 레일에서 상단·중앙·하단 제어가 왼쪽으로 치우치고 닫힌 프로필 원의 별만 중심에서 벗어난 상태.
+- Fix: 데스크톱에서 42px 상단 스타와 하단 프로필 제어를 `left: 12px`, 테마 스위처를 `width: 66px`로 설정해 모두 패널 시작선 x=66px의 절반인 x=33px에 맞췄다. 프로필 별의 `translate(-1px, 1px)`를 제거했다.
+- Production verification: 공개 운영 `/chat`에서 패널 왼쪽 66px, 상단 스타 33px, 테마 토글 5개 각각 33px, 하단 프로필 33px로 측정됐다. 닫힌 프로필 원 중심은 `(33, 687)`, 별 중심은 `(32.992, 686.992)`였고, 상세 팝업의 원·별도 동일한 약 0.008px 렌더링 오차만 보였다.
+- Responsive scope: 변경은 701px 이상 영구 레일에만 적용해 모바일 사이드바의 별도 헤더·프로필 배치를 유지했다.
+- Build evidence: 로컬 Next.js 운영 빌드·TypeScript 검사와 운영 Docker 빌드가 통과했고 공개 주소가 HTTP 200으로 응답했다. 브라우저 오류는 없었다.
+
+final result: passed
+
 ## 2026-10-30 색상 토글 벡터 렌더링
 
 - Source visual truth: `C:/Users/이재석/AppData/Local/Temp/codex-clipboard-44d37445-bc66-4f86-b571-e8c22e128b78.png`, 작은 원 안쪽에 픽셀 접점이 보이고 외곽과 색 경계가 쭈글거리는 상태.

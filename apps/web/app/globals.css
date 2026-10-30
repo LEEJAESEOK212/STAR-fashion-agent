@@ -5594,3 +5594,20 @@ html[data-chat-theme] .chat-page .sidebar-collapse,
 html[data-chat-theme] .chat-page .sidebar-pin-toggle {
   border: 0;
 }
+
+/* Keep every permanent-rail control on the centerline of the 66px area
+   that remains before the floating sidebar panel begins. */
+@media (min-width: 701px) {
+  .chat-page .sidebar-collapse,
+  .chat-page .rail-profile-control {
+    left: 12px;
+  }
+
+  .chat-page .sidebar-theme-switcher {
+    width: 66px;
+  }
+
+  .chat-page .rail-profile-trigger .profile-avatar img {
+    transform: none;
+  }
+}
