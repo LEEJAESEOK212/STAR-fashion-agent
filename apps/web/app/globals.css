@@ -2915,6 +2915,10 @@ body {
   background: var(--star-chat-chocolate);
 }
 
+.chat-page .sidebar-collapse {
+  background: color-mix(in srgb, var(--star-chat-chocolate) 88%, var(--star-chat-paper) 12%);
+}
+
 .chat-page .sidebar-collapse:hover,
 .chat-page .sidebar-collapse:active,
 .chat-page .chat-sidebar.dragging .sidebar-collapse,
