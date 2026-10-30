@@ -4510,13 +4510,16 @@ html[data-chat-theme] .chat-page .sidebar-profile[aria-expanded="true"] {
   padding: 6px;
   border: 0;
   box-shadow: none;
+  align-content: center;
+  justify-content: center;
   transition: none;
 }
 
 .chat-page .sidebar-theme-swatch {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   display: block;
+  place-self: center;
   overflow: visible;
   shape-rendering: geometricPrecision;
   filter: none;
@@ -5595,16 +5598,16 @@ html[data-chat-theme] .chat-page .sidebar-pin-toggle {
   border: 0;
 }
 
-/* Keep every permanent-rail control on the centerline of the 66px area
-   that remains before the floating sidebar panel begins. */
+/* The permanent rail is 58px wide; the following 8px is only the gutter
+   before the floating sidebar panel and must not affect its centerline. */
 @media (min-width: 701px) {
   .chat-page .sidebar-collapse,
   .chat-page .rail-profile-control {
-    left: 12px;
+    left: 8px;
   }
 
   .chat-page .sidebar-theme-switcher {
-    width: 66px;
+    width: 58px;
   }
 
   .chat-page .rail-profile-trigger .profile-avatar img {
